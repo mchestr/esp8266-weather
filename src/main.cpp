@@ -65,7 +65,7 @@ void setup() {
   uint8_t allowedHours[] = {12, 0};
   forecastClient.setAllowedHours(allowedHours, sizeof(allowedHours));
 
-  Homie_setFirmware("weather-station", "0.0.2");
+  Homie_setFirmware("weather-station", "0.0.1");
   Homie_setBrand("IoT");
   Homie.onEvent(onHomieEvent);
   Homie.setSetupFunction(initialize);
