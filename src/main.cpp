@@ -5,6 +5,7 @@ bool otaInitialDrawDone = false;
 uint8_t otaState = 0;
 uint8_t otaProgress = 0;
 
+float insideTemp = 0;
 uint32_t currTempRotateTime = 0;
 
 bool initialUpdate = false;
@@ -31,9 +32,9 @@ void initialize() {
 void temperatureLoop() {
   if (millis() - lastTemperatureSent >= TEMPERATURE_UPDATE * 1000 || lastTemperatureSent == 0) {
     sensors.requestTemperatures();
-    float temp = sensors.getTempCByIndex(0);
-    Homie.getLogger() << F("Temperature: ") << temp << endl;
-    temperatureNode.setProperty("degrees").send(String(temp));
+    insideTemp = sensors.getTempCByIndex(0);
+    Homie.getLogger() << F("Temperature: ") << insideTemp << endl;
+    temperatureNode.setProperty("degrees").send(String(insideTemp));
     lastTemperatureSent = millis();
   }
 }
@@ -64,7 +65,7 @@ void setup() {
   uint8_t allowedHours[] = {12, 0};
   forecastClient.setAllowedHours(allowedHours, sizeof(allowedHours));
 
-  Homie_setFirmware("weather-station", "0.0.1");
+  Homie_setFirmware("weather-station", "0.0.2");
   Homie_setBrand("IoT");
   Homie.onEvent(onHomieEvent);
   Homie.setSetupFunction(initialize);
@@ -78,6 +79,9 @@ void onHomieEvent(const HomieEvent &event) {
       bootMode = HomieBootMode::NORMAL;
       break;
     case HomieEventType::OTA_STARTED:
+      updateCurrentTicker.detach();
+      updateForecastTicker.detach();
+      updateAstronomyTicker.detach();
       otaState = 1;
       break;
     case HomieEventType::OTA_SUCCESSFUL:
@@ -218,26 +222,31 @@ void drawProgress(uint8_t percentage, String text) {
 }
 
 void drawCurrentWeather() {
+  // Rotate every 10 seconds
+  bool displayCurrent = millis() - currTempRotateTime < 10 * 1000;
+  if (millis() - currTempRotateTime > 20 * 1000) currTempRotateTime = millis();
+
   gfx.setTransparentColor(MINI_BLACK);
   gfx.drawPalettedBitmapFromPgm(
-      0, 55, getMeteoconIconFromProgmem(currentWeather.icon));
+      0, 55, getMeteoconIconFromProgmem(displayCurrent ? currentWeather.icon : "01n"));
 
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setColor(MINI_BLUE);
   gfx.setTextAlignment(TEXT_ALIGN_RIGHT);
-  gfx.drawString(220, 65, OPEN_WEATHER_DISPLAYED_CITY_NAME);
+  gfx.drawString(220, 65, displayCurrent ? OPEN_WEATHER_DISPLAYED_CITY_NAME : "Inside");
 
   gfx.setFont(ArialRoundedMTBold_36);
   gfx.setColor(MINI_WHITE);
   gfx.setTextAlignment(TEXT_ALIGN_RIGHT);
 
-  gfx.drawString(220, 78,
-                 String(currentWeather.temp, 1) + (IS_METRIC ? "°C" : "°F"));
+  gfx.drawString(220, 78, String(displayCurrent ? currentWeather.temp : insideTemp, 1) + (IS_METRIC ? "°C" : "°F"));
 
-  gfx.setFont(ArialRoundedMTBold_14);
-  gfx.setColor(MINI_YELLOW);
-  gfx.setTextAlignment(TEXT_ALIGN_RIGHT);
-  gfx.drawString(220, 118, currentWeather.description);
+  if (displayCurrent) {
+    gfx.setFont(ArialRoundedMTBold_14);
+    gfx.setColor(MINI_YELLOW);
+    gfx.setTextAlignment(TEXT_ALIGN_RIGHT);
+    gfx.drawString(220, 118, currentWeather.description);
+  }
 }
 
 void drawForecast1(MiniGrafx *display, CarouselState *state, int16_t x,
