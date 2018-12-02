@@ -25,6 +25,13 @@ void setup() {
   carousel.disableAllIndicators();
   carousel.setTargetFPS(3);
 
+  currentWeatherClient.setMetric(IS_METRIC);
+  currentWeatherClient.setLanguage(OPEN_WEATHER_LANGUAGE);
+  forecastClient.setMetric(IS_METRIC);
+  forecastClient.setLanguage(OPEN_WEATHER_LANGUAGE);
+  uint8_t allowedHours[] = {12, 0};
+  forecastClient.setAllowedHours(allowedHours, sizeof(allowedHours));
+
   Homie_setFirmware("weather-station", "0.0.1");
   Homie_setBrand("IoT");
   Homie.onEvent(onHomieEvent);
@@ -312,16 +319,10 @@ void updateData() {
   dstOffset = UTC_OFFSET * 3600 + dstAdjusted.time(nullptr) - time(nullptr);
 
   drawProgress(50, F("Updating conditions..."));
-  currentWeatherClient.setMetric(IS_METRIC);
-  currentWeatherClient.setLanguage(OPEN_WEATHER_LANGUAGE);
   currentWeatherClient.updateCurrentById(
       &currentWeather, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID);
 
   drawProgress(70, F("Updating forecasts..."));
-  forecastClient.setMetric(IS_METRIC);
-  forecastClient.setLanguage(OPEN_WEATHER_LANGUAGE);
-  uint8_t allowedHours[] = {12, 0};
-  forecastClient.setAllowedHours(allowedHours, sizeof(allowedHours));
   forecastClient.updateForecastsById(forecasts, owApiKey.get(),
                                      OPEN_WEATHER_MAP_LOCATION_ID,
                                      MAX_FORECASTS);
