@@ -5,7 +5,7 @@
 #define OPEN_WEATHER_MAP_LOCATION_ID "6173331"
 
 // Define data display formats
-#define IS_METRIC false
+#define IS_METRIC true
 #define IS_12H true
 #define UPDATE_INTERVAL 300
 #define UTC_OFFSET -8
