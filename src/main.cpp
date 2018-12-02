@@ -9,6 +9,8 @@ time_t dstOffset = 0;
 uint8_t moonAge = 0;
 String moonAgeImage = "";
 
+HomieSetting<const char*> owApiKey("ow_api_key", "Open Weather API Key");
+
 void setup() {
   Serial.begin(115200);
 
@@ -313,14 +315,14 @@ void updateData() {
   currentWeatherClient.setMetric(IS_METRIC);
   currentWeatherClient.setLanguage(OPEN_WEATHER_LANGUAGE);
   currentWeatherClient.updateCurrentById(
-      &currentWeather, OPEN_WEATHER_MAP_APP_ID, OPEN_WEATHER_MAP_LOCATION_ID);
+      &currentWeather, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID);
 
   drawProgress(70, F("Updating forecasts..."));
   forecastClient.setMetric(IS_METRIC);
   forecastClient.setLanguage(OPEN_WEATHER_LANGUAGE);
   uint8_t allowedHours[] = {12, 0};
   forecastClient.setAllowedHours(allowedHours, sizeof(allowedHours));
-  forecastClient.updateForecastsById(forecasts, OPEN_WEATHER_MAP_APP_ID,
+  forecastClient.updateForecastsById(forecasts, owApiKey.get(),
                                      OPEN_WEATHER_MAP_LOCATION_ID,
                                      MAX_FORECASTS);
 
