@@ -4,11 +4,15 @@
 #include <ILI9341_SPI.h>
 #include <MiniGrafx.h>
 #include <SPI.h>
+#include <Ticker.h>
 
 #include <Astronomy.h>
 #include <OpenWeatherMapCurrent.h>
 #include <OpenWeatherMapForecast.h>
 #include <simpleDSTadjust.h>
+
+#include <DallasTemperature.h>
+#include <OneWire.h>
 
 #include <Homie.h>
 #include "ArialRounded.h"
@@ -22,6 +26,7 @@
 #define TFT_DC D2
 #define TFT_CS D1
 #define TFT_LED D8
+#define TEMP_PIN D3
 
 #define NTP_SERVERS \
   "0.ch.pool.ntp.org", "1.ch.pool.ntp.org", "2.ch.pool.ntp.org"
@@ -45,6 +50,12 @@ OpenWeatherMapCurrent currentWeatherClient;
 OpenWeatherMapForecast forecastClient;
 Astronomy astronomy;
 Astronomy::MoonData moonData;
+
+OneWire oneWire(TEMP_PIN);
+DallasTemperature sensors(&oneWire);
+Ticker updateCurrentTicker;
+Ticker updateForecastTicker;
+Ticker updateAstronomyTicker;
 
 const char *getMeteoconIconFromProgmem(String iconText);
 int8_t getWifiQuality();

@@ -1,25 +1,57 @@
 #include "main.hpp"
 
 HomieBootMode bootMode = HomieBootMode::UNDEFINED;
+bool otaInitialDrawDone = false;
 uint8_t otaState = 0;
 uint8_t otaProgress = 0;
-bool canUpdate = false;
-int lastUpdate = 0;
+
+uint32_t currTempRotateTime = 0;
+
+bool initialUpdate = false;
+bool currentUpdate = false;
+bool forecastUpdate = false;
+bool astronomyUpdate = false;
+
 time_t dstOffset = 0;
 uint8_t moonAge = 0;
 String moonAgeImage = "";
+uint32_t lastTemperatureSent = 0;
 
+HomieNode temperatureNode("temperature", "temperature");
 HomieSetting<const char*> owApiKey("ow_api_key", "Open Weather API Key");
+
+void initialize() {
+  currentUpdate = true;
+  forecastUpdate = true;
+  astronomyUpdate = true;
+  sensors.begin();
+  temperatureNode.setProperty("unit").send("c");
+}
+
+void temperatureLoop() {
+  if (millis() - lastTemperatureSent >= TEMPERATURE_UPDATE * 1000 || lastTemperatureSent == 0) {
+    sensors.requestTemperatures();
+    float temp = sensors.getTempCByIndex(0);
+    Homie.getLogger() << F("Temperature: ") << temp << endl;
+    temperatureNode.setProperty("degrees").send(String(temp));
+    lastTemperatureSent = millis();
+  }
+}
 
 void setup() {
   Serial.begin(115200);
 
   pinMode(TFT_LED, OUTPUT);
   digitalWrite(TFT_LED, HIGH);
+  pinMode(TEMP_PIN, INPUT);
 
   gfx.init();
   gfx.fillBuffer(MINI_BLACK);
   gfx.commit();
+
+  updateCurrentTicker.attach(5 * 60 * 1000, []() {if (WiFi.status() == WL_CONNECTED) currentUpdate = true;});
+  updateForecastTicker.attach(20 * 60 * 1000, []() {if (WiFi.status() == WL_CONNECTED) forecastUpdate = true;});
+  updateAstronomyTicker.attach(60 * 60 * 1000, []() {if (WiFi.status() == WL_CONNECTED) astronomyUpdate = true;});
 
   carousel.setFrames(frames, frameCount);
   carousel.disableAllIndicators();
@@ -35,6 +67,8 @@ void setup() {
   Homie_setFirmware("weather-station", "0.0.1");
   Homie_setBrand("IoT");
   Homie.onEvent(onHomieEvent);
+  Homie.setSetupFunction(initialize);
+  Homie.setLoopFunction(temperatureLoop);
   Homie.setup();
 }
 
@@ -52,12 +86,6 @@ void onHomieEvent(const HomieEvent &event) {
     case HomieEventType::OTA_FAILED:
       otaState = 3;
       break;
-    case HomieEventType::WIFI_CONNECTED:
-      canUpdate = true;
-      break;
-    case HomieEventType::WIFI_DISCONNECTED:
-      canUpdate = false;
-      break;
     case HomieEventType::OTA_PROGRESS:
       otaProgress = ((float)event.sizeDone / (float)event.sizeTotal) * 100;
       break;
@@ -70,8 +98,9 @@ void loop() {
   // Handle OTA display first to ensure it is displaued before restarts
   switch (otaState) {
     case 1:  // started
-      if (otaProgress < 4 || otaProgress % 10 == 0 || (otaProgress > 96)) {
+      if (!otaInitialDrawDone || otaProgress % 10 == 0) {
         drawProgress(otaProgress, F("Updating..."));
+        otaInitialDrawDone = true;
       }
       return;
     case 2:  // success
@@ -92,36 +121,29 @@ void loop() {
   switch (bootMode) {
     case HomieBootMode::NORMAL:
       // Only update data if WiFi connected and interval passed
-      if (canUpdate &&
-          (lastUpdate == 0 || millis() - lastUpdate > UPDATE_INTERVAL * 1000)) {
+      if (currentUpdate || forecastUpdate || astronomyUpdate) {
         updateData();
-        lastUpdate = millis();
+        return;
       }
 
       // To avoid showing unix time zero dates/temps wait for initial update to
       // run
-      if (lastUpdate != 0) {
+      if (initialUpdate) {
         gfx.fillBuffer(MINI_BLACK);
         drawTime();
         drawWifiQuality();
         carousel.update();
         drawCurrentWeather();
         drawAstronomy();
-        drawNextUpdate();
         gfx.commit();
       } else {
-        drawProgress(millis() / 1000, F("Initializing..."));
+        // throttle drawing while system is getting started
+        if ((millis() / 1000) % 5 == 0)
+          drawProgress(millis() / 1000, F("Initializing..."));
       }
     default:
       break;
   }
-}
-
-void drawNextUpdate() {
-  float percentAlong =
-      ((float)(millis() - lastUpdate) / (float)(UPDATE_INTERVAL * 1000));
-  int progressLength = SCREEN_WIDTH * percentAlong;
-  gfx.drawHorizontalLine(0, 317, progressLength);
 }
 
 void drawWifiQuality() {
@@ -318,22 +340,32 @@ void updateData() {
   // calculate for time calculation how much the dst class adds.
   dstOffset = UTC_OFFSET * 3600 + dstAdjusted.time(nullptr) - time(nullptr);
 
-  drawProgress(50, F("Updating conditions..."));
-  currentWeatherClient.updateCurrentById(
-      &currentWeather, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID);
+  if (currentUpdate) {
+    drawProgress(50, F("Updating conditions..."));
+    currentWeatherClient.updateCurrentById(
+        &currentWeather, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID);
+    currentUpdate = false;
+  }
 
-  drawProgress(70, F("Updating forecasts..."));
-  forecastClient.updateForecastsById(forecasts, owApiKey.get(),
-                                     OPEN_WEATHER_MAP_LOCATION_ID,
-                                     MAX_FORECASTS);
+  if (forecastUpdate) {
+    drawProgress(70, F("Updating forecasts..."));
+    forecastClient.updateForecastsById(forecasts, owApiKey.get(),
+                                      OPEN_WEATHER_MAP_LOCATION_ID,
+                                      MAX_FORECASTS);
+    forecastUpdate = false;
+  }
 
-  drawProgress(80, F("Updating astronomy..."));
-  moonData = astronomy.calculateMoonData(time(nullptr));
-  float lunarMonth = 29.53;
-  moonAge = moonData.phase <= 4
-                ? lunarMonth * moonData.illumination / 2
-                : lunarMonth - moonData.illumination * lunarMonth / 2;
-  moonAgeImage = String((char)(65 + ((uint8_t)((26 * moonAge / 30) % 26))));
+  if (astronomyUpdate) {
+    drawProgress(80, F("Updating astronomy..."));
+    moonData = astronomy.calculateMoonData(time(nullptr));
+    float lunarMonth = 29.53;
+    moonAge = moonData.phase <= 4
+                  ? lunarMonth * moonData.illumination / 2
+                  : lunarMonth - moonData.illumination * lunarMonth / 2;
+    moonAgeImage = String((char)(65 + ((uint8_t)((26 * moonAge / 30) % 26))));
+    astronomyUpdate = false;
+  }
+  initialUpdate = true;
 }
 
 String getTime(time_t *timestamp) {

@@ -7,6 +7,7 @@
 #define IS_METRIC true
 #define IS_12H true
 #define UPDATE_INTERVAL 300
+#define TEMPERATURE_UPDATE 10
 #define UTC_OFFSET -8
 struct dstRule startRule = {"PDT", Last, Sun, Mar, 2, 3600};
 struct dstRule endRule = {"PST", Last, Sun, Oct, 2, 0};
