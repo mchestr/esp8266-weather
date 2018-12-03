@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#include <time.h>
+#include <sys/time.h>
+#include <coredecls.h>
 
 #include <Carousel.h>
 #include <ILI9341_SPI.h>
@@ -9,7 +12,6 @@
 #include <Astronomy.h>
 #include <OpenWeatherMapCurrent.h>
 #include <OpenWeatherMapForecast.h>
-#include <simpleDSTadjust.h>
 
 #include <DallasTemperature.h>
 #include <OneWire.h>
@@ -38,7 +40,6 @@ String SUN_MOON_TEXT[] = {"Sun", "Rise", "Set", "Moon", "Age", "Illum"};
 String MOON_PHASES[] = {"New Moon",       "Waxing Crescent", "First Quarter",
                         "Waxing Gibbous", "Full Moon",       "Waning Gibbous",
                         "Third quarter",  "Waning Crescent"};
-simpleDSTadjust dstAdjusted(startRule, endRule);
 
 ILI9341_SPI tft = ILI9341_SPI(TFT_CS, TFT_DC);
 MiniGrafx gfx = MiniGrafx(&tft, BITS_PER_PIXEL, palette);
@@ -50,19 +51,21 @@ OpenWeatherMapCurrent currentWeatherClient;
 OpenWeatherMapForecast forecastClient;
 Astronomy astronomy;
 Astronomy::MoonData moonData;
-uint8_t allowedHours[] = {12, 0};
 
 OneWire oneWire(TEMP_PIN);
 DallasTemperature sensors(&oneWire);
 Ticker updateCurrentTicker;
 Ticker updateForecastTicker;
 Ticker updateAstronomyTicker;
+Ticker sendTemperatureTicker;
 
 const char *getMeteoconIconFromProgmem(String iconText);
 int8_t getWifiQuality();
 String getTime(time_t *timestamp);
+const char* getTimezone(tm *timeInfo);
 void onHomieEvent(const HomieEvent &event);
 void updateData();
+void updateTemperatureSensor();
 
 void drawWifiQuality();
 void drawMQTTConnection();

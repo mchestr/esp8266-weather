@@ -2,15 +2,18 @@
 #define OPEN_WEATHER_DISPLAYED_CITY_NAME "Vancouver"
 #define OPEN_WEATHER_LANGUAGE "en"
 #define OPEN_WEATHER_MAP_LOCATION_ID "6173331"
+#define TZ_ST "PST"
+#define TZ_DST "PDT"
+#define TZ_UTC_OFFSET "+8"
+#define DST_START "M3.2.0/2"
+#define DST_END "M11.1.0/2"
 
 // Define data display formats
 #define IS_METRIC true
 #define IS_12H true
 #define UPDATE_INTERVAL 300
 #define TEMPERATURE_UPDATE 10
-#define UTC_OFFSET -8
-struct dstRule startRule = {"PDT", Last, Sun, Mar, 2, 3600};
-struct dstRule endRule = {"PST", Last, Sun, Oct, 2, 0};
+uint8_t allowedHours[] = {3, 15, 21};
 
 // Define pallete
 #define MINI_BLACK 0

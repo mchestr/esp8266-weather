@@ -5,74 +5,110 @@ bool otaInitialDrawDone = false;
 uint8_t otaState = 0;
 uint8_t otaProgress = 0;
 
-float insideTemp = 0;
 uint32_t currTempRotateTime = 0;
 
+// Set initially to false to wait for WiFi before attempting update
+// These are handled outside Homie loop to ensure it still functions
+// even without an MQTT connection
 bool initialUpdate = false;
-bool currentUpdate = false;
-bool forecastUpdate = false;
-bool astronomyUpdate = false;
+bool doCurrentUpdate = false;
+bool doForecastUpdate = false;
+bool doAstronomyUpdate = false;
+// Set to True inititally since sending is handled inside Homie loop
+// and an MQTT connection is guarenteed
+bool doTemperatureSend = true;
 
-time_t dstOffset = 0;
 uint8_t moonAge = 0;
 String moonAgeImage = "";
 uint32_t lastTemperatureSent = 0;
 
 HomieNode temperatureNode("temperature", "temperature");
 HomieSetting<const char *> owApiKey("ow_api_key", "Open Weather API Key");
+HomieSetting<const char *> tzUtcOffset("tz_utc_offset", "Standard time UTC offset. See https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html");
+HomieSetting<const char *> tzDST("tz_dst", "Timezone abbrev when in Daylight Saving Time.");
+HomieSetting<const char *> tzST("tz_st", "Timezone abbrev when in Standard Time.");
+HomieSetting<const char *> dstStart("dst_start", "When DST starts in TZ format");
+HomieSetting<const char *> dstEnd("dst_end", "When DST ends in TZ format");
+
 
 void initialize() {
-  currentUpdate = true;
-  forecastUpdate = true;
-  astronomyUpdate = true;
-  sensors.begin();
+  // Setup timezone configurations
+  // https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html
+  String tzInfo;
+  tzInfo.concat(tzST.get());
+  tzInfo.concat(tzUtcOffset.get());
+  tzInfo.concat(tzDST.get());
+  tzInfo.concat(",M3.2.0/2,M11.1.0/2");
+  Homie.getLogger() << F("Setting TZ info '") << tzInfo << F("'") << endl;
+  setenv("TZ", tzInfo.c_str(), 1);
+  tzset(); // save the TZ variable
+  configTime(0, 0, NTP_SERVERS);
+
+  doCurrentUpdate = true;
+  doForecastUpdate = true;
+  doAstronomyUpdate = true;
   temperatureNode.setProperty("unit").send("c");
 }
 
 void temperatureLoop() {
-  if (millis() - lastTemperatureSent >= TEMPERATURE_UPDATE * 1000 ||
-      lastTemperatureSent == 0) {
+  if (doTemperatureSend) {
     sensors.requestTemperatures();
-    insideTemp = sensors.getTempCByIndex(0);
+    float insideTemp = sensors.getTempCByIndex(0);
     Homie.getLogger() << F("Temperature: ") << insideTemp << endl;
     temperatureNode.setProperty("degrees").send(String(insideTemp));
-    lastTemperatureSent = millis();
+    doTemperatureSend = false;
   }
 }
 
 void setup() {
   Serial.begin(115200);
 
+  time_t rtc_time_t = 1543819410; // fake RTC time for now
+  timezone tz_ = { 0, 0};
+  timeval tv_ = { rtc_time_t, 0};
+  settimeofday(&tv_, &tz_);
+
+  // Setup pins
   pinMode(TFT_LED, OUTPUT);
   digitalWrite(TFT_LED, HIGH);
   pinMode(TEMP_PIN, INPUT);
+  sensors.begin();
 
+  // Setup tickers
+  updateCurrentTicker.attach(5 * 60 * 1000, []() {
+    if (WiFi.status() == WL_CONNECTED) doCurrentUpdate = true;
+  });
+  updateForecastTicker.attach(20 * 60 * 1000, []() {
+    if (WiFi.status() == WL_CONNECTED) doForecastUpdate = true;
+  });
+  updateAstronomyTicker.attach(60 * 60 * 1000, []() {
+    if (WiFi.status() == WL_CONNECTED) doAstronomyUpdate = true;
+  });
+  sendTemperatureTicker.attach(60 * 1000, []() { doTemperatureSend = true; });
+
+    // setup graphics driver
   gfx.init();
   gfx.fillBuffer(MINI_BLACK);
   gfx.commit();
-
-  updateCurrentTicker.attach(5 * 60 * 1000, []() {
-    if (WiFi.status() == WL_CONNECTED) currentUpdate = true;
-  });
-  updateForecastTicker.attach(20 * 60 * 1000, []() {
-    if (WiFi.status() == WL_CONNECTED) forecastUpdate = true;
-  });
-  updateAstronomyTicker.attach(60 * 60 * 1000, []() {
-    if (WiFi.status() == WL_CONNECTED) astronomyUpdate = true;
-  });
-
   carousel.setFrames(frames, frameCount);
   carousel.disableAllIndicators();
   carousel.setTargetFPS(3);
 
+  // Setup HTTP clients
   currentWeatherClient.setMetric(IS_METRIC);
   currentWeatherClient.setLanguage(OPEN_WEATHER_LANGUAGE);
   forecastClient.setMetric(IS_METRIC);
   forecastClient.setLanguage(OPEN_WEATHER_LANGUAGE);
   forecastClient.setAllowedHours(allowedHours, sizeof(allowedHours));
 
+  // Setup Homie
   Homie_setFirmware("weather-station", "0.0.1");
   Homie_setBrand("IoT");
+  tzUtcOffset.setDefaultValue(TZ_UTC_OFFSET);
+  tzST.setDefaultValue(TZ_ST);
+  tzDST.setDefaultValue(TZ_DST);
+  dstStart.setDefaultValue(DST_START);
+  dstEnd.setDefaultValue(DST_END);
   Homie.onEvent(onHomieEvent);
   Homie.setSetupFunction(initialize);
   Homie.setLoopFunction(temperatureLoop);
@@ -131,7 +167,7 @@ void loop() {
   switch (bootMode) {
     case HomieBootMode::NORMAL:
       // Only update data if WiFi connected and interval passed
-      if (currentUpdate || forecastUpdate || astronomyUpdate) {
+      if (doCurrentUpdate || doForecastUpdate || doAstronomyUpdate) {
         updateData();
         return;
       }
@@ -172,9 +208,9 @@ void drawWifiQuality() {
 
 void drawTime() {
   char time_str[11];
-  char *dstAbbrev;
-  time_t now = dstAdjusted.time(&dstAbbrev);
-  struct tm *timeinfo = localtime(&now);
+
+  time_t tnow = time(nullptr);
+  struct tm *timeinfo = localtime(&tnow);
 
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
   gfx.setFont(ArialRoundedMTBold_14);
@@ -202,11 +238,11 @@ void drawTime() {
   gfx.setFont(ArialMT_Plain_10);
   gfx.setColor(MINI_BLUE);
   if (IS_12H) {
-    sprintf(time_str, "%s\n%s", dstAbbrev,
+    sprintf(time_str, "%s\n%s", getTimezone(timeinfo),
             timeinfo->tm_hour >= 12 ? "PM" : "AM");
     gfx.drawString(195, 27, time_str);
   } else {
-    sprintf(time_str, "%s", dstAbbrev);
+    sprintf(time_str, "%s", getTimezone(timeinfo));
     gfx.drawString(195, 27, time_str);  // Known bug: Cuts off 4th character of
                                         // timezone abbreviation
   }
@@ -247,9 +283,14 @@ void drawCurrentWeather() {
   gfx.setColor(MINI_WHITE);
   gfx.setTextAlignment(TEXT_ALIGN_RIGHT);
 
-  gfx.drawString(220, 78,
-                 String(displayCurrent ? currentWeather.temp : insideTemp, 1) +
-                     (IS_METRIC ? "°C" : "°F"));
+  if (!displayCurrent) {
+    sensors.requestTemperatures();
+    float insideTemp = sensors.getTempCByIndex(0);
+    gfx.drawString(220, 78, String(insideTemp, 1) + (IS_METRIC ? "°C" : "°F"));
+  } else {
+    gfx.drawString(220, 78,
+                   String(currentWeather.temp, 1) + (IS_METRIC ? "°C" : "°F"));
+  }
 
   if (displayCurrent) {
     gfx.setFont(ArialRoundedMTBold_14);
@@ -284,7 +325,7 @@ void drawForecastDetail(uint16_t x, uint16_t y, uint8_t dayIndex) {
   gfx.setColor(MINI_YELLOW);
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
-  time_t time = forecasts[dayIndex].observationTime + dstOffset;
+  time_t time = forecasts[dayIndex].observationTime;
   struct tm *timeinfo = localtime(&time);
   gfx.drawString(
       x + 25, y - 15,
@@ -319,10 +360,10 @@ void drawAstronomy() {
   gfx.setColor(MINI_YELLOW);
   gfx.drawString(5, 250, SUN_MOON_TEXT[0]);
   gfx.setColor(MINI_WHITE);
-  time_t time = currentWeather.sunrise + dstOffset;
+  time_t time = currentWeather.sunrise;
   gfx.drawString(5, 276, SUN_MOON_TEXT[1] + ":");
   gfx.drawString(45, 276, getTime(&time));
-  time = currentWeather.sunset + dstOffset;
+  time = currentWeather.sunset;
   gfx.drawString(5, 291, SUN_MOON_TEXT[2] + ":");
   gfx.drawString(45, 291, getTime(&time));
 
@@ -351,31 +392,23 @@ void updateData() {
   gfx.fillBuffer(MINI_BLACK);
   gfx.setFont(ArialRoundedMTBold_14);
 
-  configTime(UTC_OFFSET * 3600, 0, NTP_SERVERS);
-  while (!time(nullptr)) {
-    Serial.print("#");
-    delay(10);
-  }
-  // calculate for time calculation how much the dst class adds.
-  dstOffset = UTC_OFFSET * 3600 + dstAdjusted.time(nullptr) - time(nullptr);
-
-  if (currentUpdate) {
+  if (doCurrentUpdate) {
     drawProgress(50, F("Updating conditions..."));
-    currentUpdate = !currentWeatherClient.updateCurrentById(
+    doCurrentUpdate = !currentWeatherClient.updateCurrentById(
         &currentWeather, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID);
     Homie.getLogger() << F("Current Forecast Successful? ")
-                      << (currentUpdate ? F("False") : F("True")) << endl;
+                      << (doCurrentUpdate ? F("False") : F("True")) << endl;
   }
 
-  if (forecastUpdate) {
+  if (doForecastUpdate) {
     drawProgress(70, F("Updating forecasts..."));
-    forecastUpdate = !forecastClient.updateForecastsById(
+    doForecastUpdate = !forecastClient.updateForecastsById(
         forecasts, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID, MAX_FORECASTS);
     Homie.getLogger() << F("Forcast Update Successful? ")
-                      << (forecastUpdate ? F("False") : F("True")) << endl;
+                      << (doForecastUpdate ? F("False") : F("True")) << endl;
   }
 
-  if (astronomyUpdate) {
+  if (doAstronomyUpdate) {
     drawProgress(80, F("Updating astronomy..."));
     moonData = astronomy.calculateMoonData(time(nullptr));
     float lunarMonth = 29.53;
@@ -383,9 +416,17 @@ void updateData() {
                   ? lunarMonth * moonData.illumination / 2
                   : lunarMonth - moonData.illumination * lunarMonth / 2;
     moonAgeImage = String((char)(65 + ((uint8_t)((26 * moonAge / 30) % 26))));
-    astronomyUpdate = false;
+    doAstronomyUpdate = false;
   }
   initialUpdate = true;
+}
+
+const char* getTimezone(tm *timeInfo) {
+  if (timeInfo->tm_isdst) {
+    return tzDST.get();
+  } else {
+    return tzST.get();
+  }
 }
 
 String getTime(time_t *timestamp) {
