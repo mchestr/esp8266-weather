@@ -47,13 +47,13 @@ void initialize() {
   doCurrentUpdate = true;
   doForecastUpdate = true;
   doAstronomyUpdate = true;
-  temperatureNode.setProperty("unit").send("c");
+  temperatureNode.setProperty("unit").send(IS_METRIC ? "c" : "f");
 }
 
 void temperatureLoop() {
   if (doTemperatureSend) {
     sensors.requestTemperatures();
-    float insideTemp = sensors.getTempCByIndex(0);
+    float insideTemp = IS_METRIC ? sensors.getTempCByIndex(0) : sensors.getTempFByIndex(0);
     Homie.getLogger() << F("Temperature: ") << insideTemp << endl;
     temperatureNode.setProperty("degrees").send(String(insideTemp));
     doTemperatureSend = false;
@@ -285,7 +285,7 @@ void drawCurrentWeather() {
 
   if (!displayCurrent) {
     sensors.requestTemperatures();
-    float insideTemp = sensors.getTempCByIndex(0);
+    float insideTemp = IS_METRIC ? sensors.getTempCByIndex(0) : sensors.getTempFByIndex(0);
     gfx.drawString(220, 78, String(insideTemp, 1) + (IS_METRIC ? "°C" : "°F"));
   } else {
     gfx.drawString(220, 78,

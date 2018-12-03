@@ -9,8 +9,8 @@
 #define DST_END "M11.1.0/2"
 
 // Define data display formats
-#define IS_METRIC true
-#define IS_12H true
+#define IS_METRIC false
+#define IS_12H false
 #define UPDATE_INTERVAL 300
 #define TEMPERATURE_UPDATE 10
 uint8_t allowedHours[] = {3, 15, 21};
@@ -21,3 +21,4 @@ uint8_t allowedHours[] = {3, 15, 21};
 #define MINI_YELLOW 2
 #define MINI_BLUE 3
 uint16_t palette[] = {ILI9341_BLACK, ILI9341_WHITE, ILI9341_YELLOW, 0x7E3C};
+
