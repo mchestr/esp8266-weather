@@ -9,8 +9,8 @@
 #define DST_END "M11.1.0/2"
 
 // Define data display formats
-#define IS_METRIC false
-#define IS_12H false
+#define IS_METRIC true
+#define IS_12H true
 #define UPDATE_INTERVAL 300
 #define TEMPERATURE_UPDATE 10
 uint8_t allowedHours[] = {3, 15, 21};
