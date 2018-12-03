@@ -50,6 +50,7 @@ OpenWeatherMapCurrent currentWeatherClient;
 OpenWeatherMapForecast forecastClient;
 Astronomy astronomy;
 Astronomy::MoonData moonData;
+uint8_t allowedHours[] = {12, 0};
 
 OneWire oneWire(TEMP_PIN);
 DallasTemperature sensors(&oneWire);

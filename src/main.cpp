@@ -19,7 +19,7 @@ String moonAgeImage = "";
 uint32_t lastTemperatureSent = 0;
 
 HomieNode temperatureNode("temperature", "temperature");
-HomieSetting<const char*> owApiKey("ow_api_key", "Open Weather API Key");
+HomieSetting<const char *> owApiKey("ow_api_key", "Open Weather API Key");
 
 void initialize() {
   currentUpdate = true;
@@ -30,7 +30,8 @@ void initialize() {
 }
 
 void temperatureLoop() {
-  if (millis() - lastTemperatureSent >= TEMPERATURE_UPDATE * 1000 || lastTemperatureSent == 0) {
+  if (millis() - lastTemperatureSent >= TEMPERATURE_UPDATE * 1000 ||
+      lastTemperatureSent == 0) {
     sensors.requestTemperatures();
     insideTemp = sensors.getTempCByIndex(0);
     Homie.getLogger() << F("Temperature: ") << insideTemp << endl;
@@ -50,9 +51,15 @@ void setup() {
   gfx.fillBuffer(MINI_BLACK);
   gfx.commit();
 
-  updateCurrentTicker.attach(5 * 60 * 1000, []() {if (WiFi.status() == WL_CONNECTED) currentUpdate = true;});
-  updateForecastTicker.attach(20 * 60 * 1000, []() {if (WiFi.status() == WL_CONNECTED) forecastUpdate = true;});
-  updateAstronomyTicker.attach(60 * 60 * 1000, []() {if (WiFi.status() == WL_CONNECTED) astronomyUpdate = true;});
+  updateCurrentTicker.attach(5 * 60 * 1000, []() {
+    if (WiFi.status() == WL_CONNECTED) currentUpdate = true;
+  });
+  updateForecastTicker.attach(20 * 60 * 1000, []() {
+    if (WiFi.status() == WL_CONNECTED) forecastUpdate = true;
+  });
+  updateAstronomyTicker.attach(60 * 60 * 1000, []() {
+    if (WiFi.status() == WL_CONNECTED) astronomyUpdate = true;
+  });
 
   carousel.setFrames(frames, frameCount);
   carousel.disableAllIndicators();
@@ -62,7 +69,6 @@ void setup() {
   currentWeatherClient.setLanguage(OPEN_WEATHER_LANGUAGE);
   forecastClient.setMetric(IS_METRIC);
   forecastClient.setLanguage(OPEN_WEATHER_LANGUAGE);
-  uint8_t allowedHours[] = {12, 0};
   forecastClient.setAllowedHours(allowedHours, sizeof(allowedHours));
 
   Homie_setFirmware("weather-station", "0.0.1");
@@ -99,10 +105,10 @@ void onHomieEvent(const HomieEvent &event) {
 }
 
 void loop() {
-  // Handle OTA display first to ensure it is displaued before restarts
+  // Handle OTA display first to ensure it is displayed before restarts
   switch (otaState) {
     case 1:  // started
-      if (!otaInitialDrawDone || otaProgress % 10 == 0) {
+      if (!otaInitialDrawDone || otaProgress % 5 == 0) {
         drawProgress(otaProgress, F("Updating..."));
         otaInitialDrawDone = true;
       }
@@ -228,18 +234,22 @@ void drawCurrentWeather() {
 
   gfx.setTransparentColor(MINI_BLACK);
   gfx.drawPalettedBitmapFromPgm(
-      0, 55, getMeteoconIconFromProgmem(displayCurrent ? currentWeather.icon : "01n"));
+      0, 55,
+      getMeteoconIconFromProgmem(displayCurrent ? currentWeather.icon : "01n"));
 
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setColor(MINI_BLUE);
   gfx.setTextAlignment(TEXT_ALIGN_RIGHT);
-  gfx.drawString(220, 65, displayCurrent ? OPEN_WEATHER_DISPLAYED_CITY_NAME : "Inside");
+  gfx.drawString(220, 65,
+                 displayCurrent ? OPEN_WEATHER_DISPLAYED_CITY_NAME : "Inside");
 
   gfx.setFont(ArialRoundedMTBold_36);
   gfx.setColor(MINI_WHITE);
   gfx.setTextAlignment(TEXT_ALIGN_RIGHT);
 
-  gfx.drawString(220, 78, String(displayCurrent ? currentWeather.temp : insideTemp, 1) + (IS_METRIC ? "°C" : "°F"));
+  gfx.drawString(220, 78,
+                 String(displayCurrent ? currentWeather.temp : insideTemp, 1) +
+                     (IS_METRIC ? "°C" : "°F"));
 
   if (displayCurrent) {
     gfx.setFont(ArialRoundedMTBold_14);
@@ -351,17 +361,18 @@ void updateData() {
 
   if (currentUpdate) {
     drawProgress(50, F("Updating conditions..."));
-    currentWeatherClient.updateCurrentById(
+    currentUpdate = !currentWeatherClient.updateCurrentById(
         &currentWeather, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID);
-    currentUpdate = false;
+    Homie.getLogger() << F("Current Forecast Successful? ")
+                      << (currentUpdate ? F("False") : F("True")) << endl;
   }
 
   if (forecastUpdate) {
     drawProgress(70, F("Updating forecasts..."));
-    forecastClient.updateForecastsById(forecasts, owApiKey.get(),
-                                      OPEN_WEATHER_MAP_LOCATION_ID,
-                                      MAX_FORECASTS);
-    forecastUpdate = false;
+    forecastUpdate = !forecastClient.updateForecastsById(
+        forecasts, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID, MAX_FORECASTS);
+    Homie.getLogger() << F("Forcast Update Successful? ")
+                      << (forecastUpdate ? F("False") : F("True")) << endl;
   }
 
   if (astronomyUpdate) {
