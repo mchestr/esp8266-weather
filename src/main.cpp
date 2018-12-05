@@ -183,11 +183,16 @@ void loop() {
         drawAstronomy();
         gfx.commit();
       } else {
+        if (millis() > 60000) {
+          drawProgress((millis() / 1000) % 100, F("Unable to connect, hold FLSH to reset"));
+        }
         // throttle drawing while system is getting started
         if ((millis() / 1000) % 5 == 0)
-          drawProgress(millis() / 1000, F("Initializing..."));
+          drawProgress((millis() / 1000) % 100, F("Initializing..."));
       }
+      break;
     default:
+      drawProgress((millis() / 1000) % 100, F("Connect to WiFi to configure..."));
       break;
   }
 }
@@ -394,18 +399,28 @@ void updateData() {
 
   if (doCurrentUpdate) {
     drawProgress(50, F("Updating conditions..."));
-    doCurrentUpdate = !currentWeatherClient.updateCurrentById(
+    bool doCurrentUpdate_ = !currentWeatherClient.updateCurrentById(
         &currentWeather, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID);
     Homie.getLogger() << F("Current Forecast Successful? ")
-                      << (doCurrentUpdate ? F("False") : F("True")) << endl;
+                      << (doCurrentUpdate_ ? F("False") : F("True")) << endl;
+    doCurrentUpdate = false;
+    // Throttle the update and try again in 5 seconds if failed
+    if (doCurrentUpdate_) {
+      updateCurrentTicker.once(5, [](){doCurrentUpdate = true;});
+    }
   }
 
   if (doForecastUpdate) {
     drawProgress(70, F("Updating forecasts..."));
-    doForecastUpdate = !forecastClient.updateForecastsById(
+    bool doForecastUpdate_ = !forecastClient.updateForecastsById(
         forecasts, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID, MAX_FORECASTS);
     Homie.getLogger() << F("Forcast Update Successful? ")
-                      << (doForecastUpdate ? F("False") : F("True")) << endl;
+                      << (doForecastUpdate_ ? F("False") : F("True")) << endl;
+    doForecastUpdate = false;
+    // Throttle the update and try again in 5 seconds if failed
+    if (doForecastUpdate_) {
+      updateForecastTicker.once(5, [](){doForecastUpdate = true;});
+    }
   }
 
   if (doAstronomyUpdate) {
