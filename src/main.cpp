@@ -69,10 +69,12 @@ void setup() {
   settimeofday(&tv_, &tz_);
 
   // Setup pins
-  pinMode(TFT_LED, OUTPUT);
-  digitalWrite(TFT_LED, HIGH);
+  // pinMode(TFT_LED, OUTPUT);
+  // digitalWrite(TFT_LED, HIGH);
   pinMode(TEMP_PIN, INPUT);
   sensors.begin();
+
+  ts.begin();
 
   // Setup tickers
   updateCurrentTicker.attach(5 * 60 * 1000, []() {
@@ -113,6 +115,22 @@ void setup() {
   Homie.setSetupFunction(initialize);
   Homie.setLoopFunction(temperatureLoop);
   Homie.setup();
+
+  boolean isCalibrationAvailable = touchController.loadCalibration();
+  if (!isCalibrationAvailable) {
+    Homie.getLogger() << F("Calibration not available") << endl;
+    touchController.startCalibration(&calibration);
+    while (!touchController.isCalibrationFinished()) {
+      gfx.fillBuffer(0);
+      gfx.setColor(MINI_YELLOW);
+      gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+      gfx.drawString(120, 160, "Please calibrate\ntouch screen by\ntouch point");
+      touchController.continueCalibration();
+      gfx.commit();
+      yield();
+    }
+    touchController.saveCalibration();
+  }
 }
 
 void onHomieEvent(const HomieEvent &event) {
@@ -175,6 +193,15 @@ void loop() {
       // To avoid showing unix time zero dates/temps wait for initial update to
       // run
       if (initialUpdate) {
+        if (touchController.isTouched(0)) {
+          TS_Point p = touchController.getPoint();
+          Homie.getLogger() << F("Touched at: (") << p.x << F(",") << p.y << ")" << endl;
+          if (p.y < 80) {
+            IS_12H = !IS_12H;
+          } else {
+            // screen = (screen + 1) % screenCount;
+          }
+        }
         gfx.fillBuffer(MINI_BLACK);
         drawTime();
         drawWifiQuality();
@@ -450,4 +477,9 @@ String getTime(time_t *timestamp) {
   char buf[6];
   sprintf(buf, "%02d:%02d", timeInfo->tm_hour, timeInfo->tm_min);
   return String(buf);
+}
+
+void calibrationCallback(int16_t x, int16_t y) {
+  gfx.setColor(1);
+  gfx.fillCircle(x, y, 10);
 }

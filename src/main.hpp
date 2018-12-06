@@ -8,6 +8,8 @@
 #include <MiniGrafx.h>
 #include <SPI.h>
 #include <Ticker.h>
+#include <XPT2046_Touchscreen.h>
+#include "TouchControllerWS.h"
 
 #include <Astronomy.h>
 #include <OpenWeatherMapCurrent.h>
@@ -25,9 +27,10 @@
 #define SCREEN_WIDTH 240
 #define SCREEN_HEIGHT 320
 #define BITS_PER_PIXEL 2
-#define TFT_DC D2
-#define TFT_CS D1
-#define TFT_LED D8
+#define TFT_DC D4
+#define TFT_CS D8
+#define TFT_TOUCH_CS D2
+#define TFT_TOUCH_IRQ D1
 #define TEMP_PIN D3
 
 #define NTP_SERVERS \
@@ -42,6 +45,8 @@ String MOON_PHASES[] = {"New Moon",       "Waxing Crescent", "First Quarter",
                         "Third quarter",  "Waning Crescent"};
 
 ILI9341_SPI tft = ILI9341_SPI(TFT_CS, TFT_DC);
+XPT2046_Touchscreen ts(TFT_TOUCH_CS, TFT_TOUCH_IRQ);
+TouchControllerWS touchController(&ts);
 MiniGrafx gfx = MiniGrafx(&tft, BITS_PER_PIXEL, palette);
 Carousel carousel(&gfx, 0, 0, SCREEN_WIDTH, 100);
 
@@ -59,6 +64,8 @@ Ticker updateForecastTicker;
 Ticker updateAstronomyTicker;
 Ticker sendTemperatureTicker;
 
+void calibrationCallback(int16_t x, int16_t y);
+CalibrationCallback calibration = &calibrationCallback;
 const char *getMeteoconIconFromProgmem(String iconText);
 int8_t getWifiQuality();
 String getTime(time_t *timestamp);
