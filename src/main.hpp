@@ -71,7 +71,7 @@ int8_t getWifiQuality();
 String getTime(time_t *timestamp);
 const char* getTimezone(tm *timeInfo);
 void onHomieEvent(const HomieEvent &event);
-void updateData();
+void updateData(bool force = false);
 void updateTemperatureSensor();
 
 void drawWifiQuality();
@@ -80,6 +80,8 @@ void drawNextUpdate();
 void drawTime();
 void drawProgress(uint8_t percentage, String text);
 void drawCurrentWeather();
+void drawCurrentWeatherDetail();
+void drawForecastTable(uint8_t start);
 void drawAstronomy();
 void drawForecastDetail(uint16_t x, uint16_t y, uint8_t dayIndex);
 void drawForecast1(MiniGrafx *display, CarouselState *state, int16_t x,
@@ -88,6 +90,8 @@ void drawForecast2(MiniGrafx *display, CarouselState *state, int16_t x,
                    int16_t y);
 void drawForecast3(MiniGrafx *display, CarouselState *state, int16_t x,
                    int16_t y);
+void drawLabelValue(uint8_t line, String label, String value);
+void drawAbout();
 
 FrameCallback frames[] = {drawForecast1, drawForecast2, drawForecast3};
 int frameCount = 3;

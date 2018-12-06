@@ -3,6 +3,7 @@
 
 #ifndef _TOUCH_CONTROLLERWSH_
 #define _TOUCH_CONTROLLERWSH_
+#define CALIBRATION_FILE "/calibration.txt"
 
 typedef void (*CalibrationCallback)(int16_t x, int16_t y);
 
@@ -26,7 +27,7 @@ class TouchControllerWS {
     int ay = 0;
     int state = 0;
     long lastStateChange = 0;
-    long lastTouched = 0;
+    uint32_t lastTouched = 0;
     CalibrationCallback *calibrationCallback;
     TS_Point p1, p2;
 

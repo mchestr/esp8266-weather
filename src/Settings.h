@@ -9,7 +9,7 @@
 #define DST_END "M11.1.0/2"
 
 // Define data display formats
-#define IS_METRIC true
+bool IS_METRIC = true;
 bool IS_12H = true;
 #define UPDATE_INTERVAL 300
 #define TEMPERATURE_UPDATE 10

@@ -6,13 +6,10 @@ TouchControllerWS::TouchControllerWS(XPT2046_Touchscreen *touchScreen) {
   
 bool TouchControllerWS::loadCalibration() {
   // always use this to "mount" the filesystem
-  bool result = SPIFFS.begin();
-  Serial.println("SPIFFS opened: " + result);
-
-  SPIFFS.remove("/calibration.txt");
+  SPIFFS.begin();
 
   // this opens the file "f.txt" in read-mode
-  File f = SPIFFS.open("/calibration.txt", "r");
+  File f = SPIFFS.open(CALIBRATION_FILE, "r");
 
   if (!f) {
     return false;
@@ -31,16 +28,17 @@ bool TouchControllerWS::loadCalibration() {
 
   }
   f.close();
-  return false;
+  return true;
 }
 
 bool TouchControllerWS::saveCalibration() {
-  bool result = SPIFFS.begin();
+  SPIFFS.begin();
 
   // open the file in write mode
-  File f = SPIFFS.open("/calibration.txt", "w");
+  File f = SPIFFS.open(CALIBRATION_FILE, "w");
   if (!f) {
     Serial.println("file creation failed");
+    return false;
   }
   // now write two lines in key/value style with  end-of-line characters
   f.println(dx);
@@ -49,6 +47,7 @@ bool TouchControllerWS::saveCalibration() {
   f.println(ay);
 
   f.close();
+  return true;
 }
 
 void TouchControllerWS::startCalibration(CalibrationCallback *calibrationCallback) {
@@ -87,7 +86,7 @@ bool TouchControllerWS::isCalibrationFinished() {
 }
 
 bool TouchControllerWS::isTouched() {
-  touchScreen->touched();
+  return touchScreen->touched();
 }
 
 bool TouchControllerWS::isTouched(int16_t debounceMillis) {
