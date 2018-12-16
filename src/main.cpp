@@ -26,12 +26,14 @@ uint8_t currentScreen = 0;
 
 HomieNode temperatureNode("temperature", "temperature");
 HomieSetting<const char *> owApiKey("ow_api_key", "Open Weather API Key");
-HomieSetting<const char *> tzUtcOffset("tz_utc_offset", "Standard time UTC offset. See https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html");
-HomieSetting<const char *> tzDST("tz_dst", "Timezone abbrev when in Daylight Saving Time.");
-HomieSetting<const char *> tzST("tz_st", "Timezone abbrev when in Standard Time.");
-HomieSetting<const char *> dstStart("dst_start", "When DST starts in TZ format");
-HomieSetting<const char *> dstEnd("dst_end", "When DST ends in TZ format");
-
+HomieSetting<const char *> tzUtcOffset(
+    "tz_utc_offset",
+    "Standard time UTC offset. See "
+    "https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html");
+HomieSetting<const char *> tzDST(
+    "tz_dst", "Timezone abbrev when in Daylight Saving Time.");
+HomieSetting<const char *> tzST("tz_st",
+                                "Timezone abbrev when in Standard Time.");
 
 void initialize() {
   // Setup timezone configurations
@@ -43,7 +45,7 @@ void initialize() {
   tzInfo.concat(",M3.2.0/2,M11.1.0/2");
   Homie.getLogger() << F("Setting TZ info '") << tzInfo << F("'") << endl;
   setenv("TZ", tzInfo.c_str(), 1);
-  tzset(); // save the TZ variable
+  tzset();  // save the TZ variable
   configTime(0, 0, NTP_SERVERS);
 
   doCurrentUpdate = true;
@@ -55,7 +57,8 @@ void initialize() {
 void temperatureLoop() {
   if (doTemperatureSend) {
     sensors.requestTemperatures();
-    float insideTemp = IS_METRIC ? sensors.getTempCByIndex(0) : sensors.getTempFByIndex(0);
+    float insideTemp =
+        IS_METRIC ? sensors.getTempCByIndex(0) : sensors.getTempFByIndex(0);
     Homie.getLogger() << F("Temperature: ") << insideTemp << endl;
     temperatureNode.setProperty("degrees").send(String(insideTemp));
     doTemperatureSend = false;
@@ -65,9 +68,9 @@ void temperatureLoop() {
 void setup() {
   Serial.begin(115200);
 
-  time_t rtc_time_t = 1543819410; // fake RTC time for now
-  timezone tz_ = { 0, 0};
-  timeval tv_ = { rtc_time_t, 0};
+  time_t rtc_time_t = 1543819410;  // fake RTC time for now
+  timezone tz_ = {0, 0};
+  timeval tv_ = {rtc_time_t, 0};
   settimeofday(&tv_, &tz_);
 
   // Setup pins
@@ -90,13 +93,18 @@ void setup() {
   });
   sendTemperatureTicker.attach(60, []() { doTemperatureSend = true; });
 
-    // setup graphics driver
+  // setup graphics driver
   gfx.init();
   gfx.fillBuffer(MINI_BLACK);
   gfx.commit();
   carousel.setFrames(frames, frameCount);
   carousel.disableAllIndicators();
   carousel.setTargetFPS(3);
+  wizard.setCallback(wizardCallback);
+  wizard.addStep(drawWizardName, wizardNameCallback);
+  wizard.addStep(drawWizardUTFOffset, wizardUTFOffsetCallback);
+  wizard.addStep(drawWizardST, wizardSTCallback);
+  wizard.addStep(drawWizardDST, wizardDSTCallback);
 
   // Setup HTTP clients
   currentWeatherClient.setLanguage(OPEN_WEATHER_LANGUAGE);
@@ -109,27 +117,16 @@ void setup() {
   tzUtcOffset.setDefaultValue(TZ_UTC_OFFSET);
   tzST.setDefaultValue(TZ_ST);
   tzDST.setDefaultValue(TZ_DST);
-  dstStart.setDefaultValue(DST_START);
-  dstEnd.setDefaultValue(DST_END);
   Homie.onEvent(onHomieEvent);
   Homie.setSetupFunction(initialize);
   Homie.setLoopFunction(temperatureLoop);
   Homie.setup();
 
+  touchController.setTouchCallback(touchCallback);
   boolean isCalibrationAvailable = touchController.loadCalibration();
   if (!isCalibrationAvailable) {
     Homie.getLogger() << F("Calibration not available") << endl;
-    touchController.startCalibration(&calibration);
-    while (!touchController.isCalibrationFinished()) {
-      gfx.fillBuffer(0);
-      gfx.setColor(MINI_YELLOW);
-      gfx.setTextAlignment(TEXT_ALIGN_CENTER);
-      gfx.drawString(120, 160, "Please calibrate\ntouch screen by\ntouch point");
-      touchController.continueCalibration();
-      gfx.commit();
-      yield();
-    }
-    touchController.saveCalibration();
+    touchController.calibrate(calibrationCallback);
   }
 }
 
@@ -137,6 +134,10 @@ void onHomieEvent(const HomieEvent &event) {
   switch (event.type) {
     case HomieEventType::NORMAL_MODE:
       bootMode = HomieBootMode::NORMAL;
+      break;
+    case HomieEventType::CONFIGURATION_MODE:
+      bootMode = HomieBootMode::CONFIGURATION;
+      wizard.start();
       break;
     case HomieEventType::OTA_STARTED:
       updateCurrentTicker.detach();
@@ -180,6 +181,7 @@ void loop() {
   }
 
   Homie.loop();
+  touchController.loop();
 
   // Handle Normal mode screen drawing
   switch (bootMode) {
@@ -193,22 +195,6 @@ void loop() {
       // To avoid showing unix time zero dates/temps wait for initial update to
       // run
       if (initialUpdate) {
-        if (touchController.isTouched(500)) {
-          TS_Point p = touchController.getPoint();
-          Homie.getLogger() << F("Touched at: (") << p.x << F(",") << p.y << ")" << endl;
-          if (p.y < 80) {
-            IS_12H = !IS_12H;
-          } else if (p.y >= 80 && p.y < 120) {
-            IS_METRIC = !IS_METRIC;
-            updateData(true);
-          } else if (p.x >= SCREEN_WIDTH / 2) {
-            currentScreen = (currentScreen - 1) % screenCount;
-            Homie.getLogger() << F("Switching to Screen: ") << currentScreen << endl;
-          } else {
-            currentScreen = (currentScreen + 1) % screenCount;
-            Homie.getLogger() << F("Switching to Screen: ") << currentScreen << endl;
-          }
-        }
         gfx.fillBuffer(MINI_BLACK);
         switch (currentScreen) {
           case 1:
@@ -234,19 +220,22 @@ void loop() {
         gfx.commit();
       } else {
         if (millis() > 60000) {
-          drawProgress((millis() / 1000) % 100, F("Unable to connect, hold FLSH to reset"));
-          yield();
+          drawProgress((millis() / 1000) % 100,
+                       F("Unable to connect, hold FLSH to reset"));
         } else if ((millis() / 1000) % 5 == 0)
           // throttle drawing while system is getting started
           drawProgress((millis() / 1000) % 100, F("Initializing..."));
-          yield();
+      }
+      break;
+    case HomieBootMode::CONFIGURATION:
+      if (wizard.inProgress()) {
+        wizard.draw();
       }
       break;
     default:
-      drawProgress((millis() / 1000) % 100, F("Connect to WiFi to configure..."));
-      yield();
       break;
   }
+  yield();
 }
 
 void drawWifiQuality() {
@@ -342,7 +331,8 @@ void drawCurrentWeather() {
 
   if (!displayCurrent) {
     sensors.requestTemperatures();
-    float insideTemp = IS_METRIC ? sensors.getTempCByIndex(0) : sensors.getTempFByIndex(0);
+    float insideTemp =
+        IS_METRIC ? sensors.getTempCByIndex(0) : sensors.getTempFByIndex(0);
     gfx.drawString(220, 78, String(insideTemp, 1) + (IS_METRIC ? "°C" : "°F"));
   } else {
     gfx.drawString(220, 78,
@@ -441,7 +431,8 @@ void drawCurrentWeatherDetail() {
   gfx.drawString(120, 2, F("Current Conditions"));
 
   gfx.setTransparentColor(MINI_BLACK);
-  gfx.drawPalettedBitmapFromPgm(0, 20, getMeteoconIconFromProgmem(currentWeather.icon));
+  gfx.drawPalettedBitmapFromPgm(
+      0, 20, getMeteoconIconFromProgmem(currentWeather.icon));
 
   String degreeSign = "°F";
   if (IS_METRIC) {
@@ -450,13 +441,14 @@ void drawCurrentWeatherDetail() {
   // String weatherIcon;
   // String weatherText;
   drawLabelValue(6, F("Temperature:"), currentWeather.temp + degreeSign);
-  drawLabelValue(7, F("Wind Speed:"), String(currentWeather.windSpeed, 1) + (IS_METRIC ? "m/s" : "mph") );
+  drawLabelValue(
+      7, F("Wind Speed:"),
+      String(currentWeather.windSpeed, 1) + (IS_METRIC ? "m/s" : "mph"));
   drawLabelValue(8, F("Wind Dir:"), String(currentWeather.windDeg, 1) + "°");
   drawLabelValue(9, F("Humidity:"), String(currentWeather.humidity) + "%");
   drawLabelValue(10, F("Pressure:"), String(currentWeather.pressure) + "hPa");
   drawLabelValue(11, F("Clouds:"), String(currentWeather.clouds) + "%");
   drawLabelValue(12, F("Visibility:"), String(currentWeather.visibility) + "m");
-
 
   gfx.setTextAlignment(TEXT_ALIGN_LEFT);
   gfx.setColor(MINI_YELLOW);
@@ -485,22 +477,24 @@ void drawForecastTable(uint8_t start) {
     gfx.setColor(MINI_WHITE);
     gfx.setTextAlignment(TEXT_ALIGN_CENTER);
     time_t time = forecasts[i].observationTime;
-    struct tm * timeinfo = localtime (&time);
-    gfx.drawString(120, y - 15, WDAY_NAMES[timeinfo->tm_wday] + " " + String(timeinfo->tm_hour) + ":00");
+    struct tm *timeinfo = localtime(&time);
+    gfx.drawString(120, y - 15,
+                   WDAY_NAMES[timeinfo->tm_wday] + " " +
+                       String(timeinfo->tm_hour) + ":00");
 
-   
-    gfx.drawPalettedBitmapFromPgm(0, y, getMiniMeteoconIconFromProgmem(forecasts[i].icon));
+    gfx.drawPalettedBitmapFromPgm(
+        0, y, getMiniMeteoconIconFromProgmem(forecasts[i].icon));
     gfx.setTextAlignment(TEXT_ALIGN_LEFT);
     gfx.setColor(MINI_YELLOW);
     gfx.setFont(ArialRoundedMTBold_14);
     gfx.drawString(10, y - 15, forecasts[i].main);
     gfx.setTextAlignment(TEXT_ALIGN_LEFT);
-    
+
     gfx.setColor(MINI_BLUE);
     gfx.drawString(50, y, F("T:"));
     gfx.setColor(MINI_WHITE);
     gfx.drawString(70, y, String(forecasts[i].temp, 0) + degreeSign);
-    
+
     gfx.setColor(MINI_BLUE);
     gfx.drawString(50, y + 15, F("H:"));
     gfx.setColor(MINI_WHITE);
@@ -509,23 +503,25 @@ void drawForecastTable(uint8_t start) {
     gfx.setColor(MINI_BLUE);
     gfx.drawString(50, y + 30, F("P: "));
     gfx.setColor(MINI_WHITE);
-    gfx.drawString(70, y + 30, String(forecasts[i].rain, 2) + (IS_METRIC ? "mm" : "in"));
+    gfx.drawString(70, y + 30,
+                   String(forecasts[i].rain, 2) + (IS_METRIC ? "mm" : "in"));
 
     gfx.setColor(MINI_BLUE);
     gfx.drawString(130, y, F("Pr:"));
     gfx.setColor(MINI_WHITE);
     gfx.drawString(170, y, String(forecasts[i].pressure, 0) + "hPa");
-    
+
     gfx.setColor(MINI_BLUE);
     gfx.drawString(130, y + 15, F("WSp:"));
     gfx.setColor(MINI_WHITE);
-    gfx.drawString(170, y + 15, String(forecasts[i].windSpeed, 0) + (IS_METRIC ? "m/s" : "mph") );
+    gfx.drawString(
+        170, y + 15,
+        String(forecasts[i].windSpeed, 0) + (IS_METRIC ? "m/s" : "mph"));
 
     gfx.setColor(MINI_BLUE);
     gfx.drawString(130, y + 30, F("WDi: "));
     gfx.setColor(MINI_WHITE);
     gfx.drawString(170, y + 30, String(forecasts[i].windDeg, 0) + "°");
-
   }
 }
 
@@ -535,15 +531,17 @@ void drawAbout() {
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
   gfx.setColor(MINI_WHITE);
-  
+
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
   drawLabelValue(1, F("DeviceID:"), Homie.getConfiguration().deviceId);
   drawLabelValue(3, F("SSID:"), WiFi.SSID());
   drawLabelValue(4, F("IP:"), WiFi.localIP().toString());
-  drawLabelValue(5, F("MQTT:"), String(Homie.getConfiguration().mqtt.server.host));
-  drawLabelValue(7, F("Heap Mem:"), String(ESP.getFreeHeap() / 1024)+"kb");
-  drawLabelValue(8, F("Flash Mem:"), String(ESP.getFlashChipRealSize() / 1024 / 1024) + "MB");
+  drawLabelValue(5, F("MQTT:"),
+                 String(Homie.getConfiguration().mqtt.server.host));
+  drawLabelValue(7, F("Heap Mem:"), String(ESP.getFreeHeap() / 1024) + "kb");
+  drawLabelValue(8, F("Flash Mem:"),
+                 String(ESP.getFlashChipRealSize() / 1024 / 1024) + "MB");
   drawLabelValue(9, F("WiFi Strength:"), String(WiFi.RSSI()) + "dB");
   drawLabelValue(10, F("Chip ID:"), String(ESP.getChipId()));
   drawLabelValue(12, F("CPU Freq.: "), String(ESP.getCpuFreqMHz()) + "MHz");
@@ -553,7 +551,9 @@ void drawAbout() {
   const uint32_t millis_in_minute = 1000 * 60;
   uint8_t days = millis() / (millis_in_day);
   uint8_t hours = (millis() - (days * millis_in_day)) / millis_in_hour;
-  uint8_t minutes = (millis() - (days * millis_in_day) - (hours * millis_in_hour)) / millis_in_minute;
+  uint8_t minutes =
+      (millis() - (days * millis_in_day) - (hours * millis_in_hour)) /
+      millis_in_minute;
   sprintf(time_str, "%2dd%2dh%2dm", days, hours, minutes);
   drawLabelValue(13, F("Uptime: "), time_str);
   gfx.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -598,7 +598,7 @@ void updateData(bool force) {
     doCurrentUpdate = false;
     // Throttle the update and try again in 5 seconds if failed
     if (doCurrentUpdate_) {
-      updateCurrentTicker.once(5, [](){doCurrentUpdate = true;});
+      updateCurrentTicker.once(5, []() { doCurrentUpdate = true; });
     }
   }
 
@@ -612,7 +612,7 @@ void updateData(bool force) {
     doForecastUpdate = false;
     // Throttle the update and try again in 5 seconds if failed
     if (doForecastUpdate_) {
-      updateForecastTicker.once(5, [](){doForecastUpdate = true;});
+      updateForecastTicker.once(5, []() { doForecastUpdate = true; });
     }
   }
 
@@ -629,7 +629,7 @@ void updateData(bool force) {
   initialUpdate = true;
 }
 
-const char* getTimezone(tm *timeInfo) {
+const char *getTimezone(tm *timeInfo) {
   if (timeInfo->tm_isdst) {
     return tzDST.get();
   } else {
@@ -646,6 +646,94 @@ String getTime(time_t *timestamp) {
 }
 
 void calibrationCallback(int16_t x, int16_t y) {
-  gfx.setColor(1);
+  gfx.fillBuffer(MINI_BLACK);
+  gfx.setColor(MINI_YELLOW);
+  gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+  gfx.drawString(120, 160,
+                 "Please calibrate\ntouch screen by\ntouching the point");
+  gfx.setColor(MINI_WHITE);
   gfx.fillCircle(x, y, 10);
+  gfx.commit();
+}
+
+void touchCallback(int16_t x, int16_t y) {
+  switch (bootMode) {
+    case HomieBootMode::NORMAL:
+      if (!initialUpdate) return;
+      if (y < 80) {
+        IS_12H = !IS_12H;
+      } else if (y >= 80 && y < 120) {
+        IS_METRIC = !IS_METRIC;
+        updateData(true);
+      } else if (x >= SCREEN_WIDTH / 2) {
+        currentScreen = (currentScreen - 1) % screenCount;
+        Homie.getLogger() << F("Switching to Screen: ") << currentScreen
+                          << endl;
+      } else {
+        currentScreen = (currentScreen + 1) % screenCount;
+        Homie.getLogger() << F("Switching to Screen: ") << currentScreen
+                          << endl;
+      }
+      return;
+    case HomieBootMode::CONFIGURATION:
+      if (wizard.inProgress()) {
+        wizard.touchCallback(x, y);
+      }
+    default:
+      return;
+  }
+}
+
+String _name;
+String _tzDST;
+String _tzST;
+String _utcOffset;
+
+void wizardCallback(String ssid, String password) {
+  String json = "{\"name\":\"" + _name + "\",\"wifi\":{\"ssid\":\"" + ssid +
+                "\",\"password\":\"" + password +
+                "\"},\"settings\":{\"tz_utc_offset\":\"" + _utcOffset +
+                "\",\"tz_st\":\"" + _tzST + "\",\"tz_dst\":\"" + _tzDST + "\"}}";
+  if (Homie.getConfig().patch(json.c_str())) {
+    Homie.reboot();
+  } else {
+    wizard.reset();
+    wizard.start();
+  }
+}
+
+void drawWizardName(TFTKeyboard *keyboard) {
+  keyboard->draw("Friendly Name for Device?");
+}
+
+void wizardNameCallback(String value) {
+  Homie.getLogger() << F("Got ") << value << endl;
+  _name = value;
+}
+
+void drawWizardUTFOffset(TFTKeyboard *keyboard) {
+  keyboard->draw("UTF Offset?");
+}
+
+void wizardUTFOffsetCallback(String value) {
+  Homie.getLogger() << F("Got ") << value << endl;
+  _utcOffset = value;
+}
+
+void drawWizardST(TFTKeyboard *keyboard) {
+  keyboard->draw("Standard Time Abbreviation?");
+}
+
+void wizardSTCallback(String value) {
+  Homie.getLogger() << F("Got ") << value << endl;
+  _tzST = value;
+}
+
+void drawWizardDST(TFTKeyboard *keyboard) {
+  keyboard->draw("DST Abbreviation?");
+}
+
+void wizardDSTCallback(String value) {
+  Homie.getLogger() << F("Got ") << value << endl;
+  _tzDST = value;
 }

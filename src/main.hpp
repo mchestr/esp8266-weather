@@ -9,7 +9,8 @@
 #include <SPI.h>
 #include <Ticker.h>
 #include <XPT2046_Touchscreen.h>
-#include "TouchControllerWS.h"
+#include "TFTController.h"
+#include "TFTWizard.h"
 
 #include <Astronomy.h>
 #include <OpenWeatherMapCurrent.h>
@@ -46,9 +47,10 @@ String MOON_PHASES[] = {"New Moon",       "Waxing Crescent", "First Quarter",
 
 ILI9341_SPI tft = ILI9341_SPI(TFT_CS, TFT_DC);
 XPT2046_Touchscreen ts(TFT_TOUCH_CS, TFT_TOUCH_IRQ);
-TouchControllerWS touchController(&ts);
+TFTController touchController(&ts);
 MiniGrafx gfx = MiniGrafx(&tft, BITS_PER_PIXEL, palette);
 Carousel carousel(&gfx, 0, 0, SCREEN_WIDTH, 100);
+TFTWizard wizard(&gfx, ArialMT_Plain_16, ArialMT_Plain_10, ArialMT_Plain_10);
 
 OpenWeatherMapCurrentData currentWeather;
 OpenWeatherMapForecastData forecasts[MAX_FORECASTS];
@@ -65,7 +67,18 @@ Ticker updateAstronomyTicker;
 Ticker sendTemperatureTicker;
 
 void calibrationCallback(int16_t x, int16_t y);
-CalibrationCallback calibration = &calibrationCallback;
+void touchCallback(int16_t x, int16_t y);
+
+void wizardCallback(String ssid, String password);
+void drawWizardName(TFTKeyboard *keyboard);
+void wizardNameCallback(String value);
+void drawWizardUTFOffset(TFTKeyboard* keyboard);
+void wizardUTFOffsetCallback(String value);
+void drawWizardST(TFTKeyboard* keyboard);
+void wizardSTCallback(String value);
+void drawWizardDST(TFTKeyboard* keyboard);
+void wizardDSTCallback(String value);
+
 const char *getMeteoconIconFromProgmem(String iconText);
 int8_t getWifiQuality();
 String getTime(time_t *timestamp);
