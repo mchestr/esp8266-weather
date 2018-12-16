@@ -164,7 +164,7 @@ void loop() {
   switch (otaState) {
     case 1:  // started
       if (!otaInitialDrawDone || otaProgress % 5 == 0) {
-        drawProgress(otaProgress, F("Updating..."));
+        drawProgress(otaProgress, "Updating...(" + String(otaProgress) + "%)");
         otaInitialDrawDone = true;
       }
       return;
@@ -204,12 +204,11 @@ void loop() {
             drawForecastTable(0);
             break;
           case 3:
-            drawForecastTable(1);
+            drawForecastTable(4);
             break;
           case 4:
             drawAbout();
             break;
-          case 0:
           default:
             drawTime();
             drawWifiQuality();
@@ -221,7 +220,13 @@ void loop() {
       } else {
         if (millis() > 60000) {
           drawProgress((millis() / 1000) % 100,
-                       F("Unable to connect, hold FLSH to reset"));
+                       F("Unable to connect to WiFi"));
+          gfx.setColor(MINI_WHITE);
+          gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
+          gfx.setColor(MINI_YELLOW);
+          gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+          gfx.drawString(SCREEN_WIDTH/2, 270, F("RESET"));
+          gfx.commit();
         } else if ((millis() / 1000) % 5 == 0)
           // throttle drawing while system is getting started
           drawProgress((millis() / 1000) % 100, F("Initializing..."));
@@ -557,10 +562,11 @@ void drawAbout() {
   sprintf(time_str, "%2dd%2dh%2dm", days, hours, minutes);
   drawLabelValue(13, F("Uptime: "), time_str);
   gfx.setTextAlignment(TEXT_ALIGN_LEFT);
-  gfx.setColor(MINI_YELLOW);
-  gfx.drawString(15, 250, F("Last Reset: "));
   gfx.setColor(MINI_WHITE);
-  gfx.drawStringMaxWidth(15, 265, 240 - 2 * 15, ESP.getResetInfo());
+  gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
+  gfx.setColor(MINI_YELLOW);
+  gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+  gfx.drawString(SCREEN_WIDTH/2, 270, F("RESET"));
 }
 
 void drawLabelValue(uint8_t line, String label, String value) {
@@ -659,7 +665,25 @@ void calibrationCallback(int16_t x, int16_t y) {
 void touchCallback(int16_t x, int16_t y) {
   switch (bootMode) {
     case HomieBootMode::NORMAL:
-      if (!initialUpdate) return;
+      if (!initialUpdate) {
+        if (millis() > 60000) {
+          if (x > 15 && x < SCREEN_WIDTH-15 && y > 270 && y < SCREEN_HEIGHT) {
+            // reset button pushed
+            Homie.setHomieBootModeOnNextBoot(HomieBootMode::CONFIGURATION);
+            Homie.reboot();
+          }
+        }
+        return;
+      };
+      switch (currentScreen) {
+        case 4: //about screen
+          if (x > 15 && x < SCREEN_WIDTH-15 && y > 270 && y < SCREEN_HEIGHT) {
+            // reset button pushed
+            Homie.setHomieBootModeOnNextBoot(HomieBootMode::CONFIGURATION);
+            Homie.reboot();
+            return;
+          }
+      }
       if (y < 80) {
         IS_12H = !IS_12H;
       } else if (y >= 80 && y < 120) {
