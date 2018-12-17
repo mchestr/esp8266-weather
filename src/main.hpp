@@ -79,7 +79,7 @@ void updateTemperatureSensor();
 
 void drawWifiQuality();
 void drawTime();
-void drawProgress(uint8_t percentage, String text);
+void drawProgress(uint8_t percentage, String text, bool commit = true);
 void drawCurrentWeather();
 void drawCurrentWeatherDetail();
 void drawForecastTable(uint8_t start);

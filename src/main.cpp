@@ -304,7 +304,7 @@ void loop() {
         gfx.commit();
       } else {
         if (millis() > 60000) {
-          drawProgress((millis() / 1000) % 100, F("Unable to connect to WiFi"));
+          drawProgress((millis() / 1000) % 100, F("Unable to connect to WiFi"), false);
           gfx.setColor(MINI_WHITE);
           gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
           gfx.setColor(MINI_YELLOW);
@@ -386,7 +386,7 @@ void drawTime() {
   }
 }
 
-void drawProgress(uint8_t percentage, String text) {
+void drawProgress(uint8_t percentage, String text, bool commit) {
   gfx.fillBuffer(MINI_BLACK);
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
@@ -398,7 +398,7 @@ void drawProgress(uint8_t percentage, String text) {
   gfx.setColor(MINI_BLUE);
   gfx.fillRect(12, 170, 216 * percentage / 100, 11);
 
-  gfx.commit();
+  if (commit) gfx.commit();
 }
 
 void drawCurrentWeather() {
