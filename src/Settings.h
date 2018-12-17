@@ -1,10 +1,5 @@
 // OpenWeather details
-#define OPEN_WEATHER_DISPLAYED_CITY_NAME "Vancouver"
 #define OPEN_WEATHER_LANGUAGE "en"
-#define OPEN_WEATHER_MAP_LOCATION_ID "6173331"
-#define TZ_ST "PST"
-#define TZ_DST "PDT"
-#define TZ_UTC_OFFSET "+8"
 #define DST_START "M3.2.0/2"
 #define DST_END "M11.1.0/2"
 

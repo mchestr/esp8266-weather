@@ -1,7 +1,7 @@
 #include <Arduino.h>
-#include <time.h>
-#include <sys/time.h>
 #include <coredecls.h>
+#include <sys/time.h>
+#include <time.h>
 
 #include <Carousel.h>
 #include <ILI9341_SPI.h>
@@ -67,29 +67,17 @@ Ticker updateAstronomyTicker;
 Ticker sendTemperatureTicker;
 
 void calibrationCallback(int16_t x, int16_t y);
-void touchCallback(int16_t x, int16_t y);
-
 void wizardCallback(String ssid, String password);
-void drawWizardName(TFTKeyboard *keyboard);
-void wizardNameCallback(String value);
-void drawWizardUTFOffset(TFTKeyboard* keyboard);
-void wizardUTFOffsetCallback(String value);
-void drawWizardST(TFTKeyboard* keyboard);
-void wizardSTCallback(String value);
-void drawWizardDST(TFTKeyboard* keyboard);
-void wizardDSTCallback(String value);
 
 const char *getMeteoconIconFromProgmem(String iconText);
 int8_t getWifiQuality();
 String getTime(time_t *timestamp);
-const char* getTimezone(tm *timeInfo);
+const char *getTimezone(tm *timeInfo);
 void onHomieEvent(const HomieEvent &event);
 void updateData(bool force = false);
 void updateTemperatureSensor();
 
 void drawWifiQuality();
-void drawMQTTConnection();
-void drawNextUpdate();
 void drawTime();
 void drawProgress(uint8_t percentage, String text);
 void drawCurrentWeather();
@@ -105,6 +93,9 @@ void drawForecast3(MiniGrafx *display, CarouselState *state, int16_t x,
                    int16_t y);
 void drawLabelValue(uint8_t line, String label, String value);
 void drawAbout();
+
+// Callbacks
+void switchPage(bool forward);
 
 FrameCallback frames[] = {drawForecast1, drawForecast2, drawForecast3};
 int frameCount = 3;

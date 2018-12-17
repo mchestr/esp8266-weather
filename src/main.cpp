@@ -24,16 +24,83 @@ uint32_t lastTemperatureSent = 0;
 uint8_t screenCount = 5;
 uint8_t currentScreen = 0;
 
+// Wizard helpers
+String _owLocId;
+String _owLocName;
+String _tzDST;
+String _tzST;
+String _utcOffset;
+
 HomieNode temperatureNode("temperature", "temperature");
-HomieSetting<const char *> owApiKey("ow_api_key", "Open Weather API Key");
-HomieSetting<const char *> tzUtcOffset(
+HomieSetting<const char*> owApiKey("ow_api_key", "Open Weather API Key");
+HomieSetting<const char*> owLocationName("ow_loc_name",
+                                         "Open Weather Location Name");
+HomieSetting<const char*> owLocationId("ow_loc_id", "Open Weather Location");
+HomieSetting<const char*> tzUtcOffset(
     "tz_utc_offset",
     "Standard time UTC offset. See "
     "https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html");
-HomieSetting<const char *> tzDST(
+HomieSetting<const char*> tzDST(
     "tz_dst", "Timezone abbrev when in Daylight Saving Time.");
-HomieSetting<const char *> tzST("tz_st",
-                                "Timezone abbrev when in Standard Time.");
+HomieSetting<const char*> tzST("tz_st",
+                               "Timezone abbrev when in Standard Time.");
+
+TFTCallback nextPage(
+    0, SCREEN_WIDTH / 2, 0, SCREEN_HEIGHT, std::bind(switchPage, true),
+    255);  // put on some high screen number to always be enabled
+TFTCallback prevPage(
+    SCREEN_WIDTH / 2, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
+    std::bind(switchPage, false),
+    255);  // put on some high screen number to always be enabled
+TFTCallback toggleTempUnits(0, 160, 80, 120,
+                            [](int16_t x, int16_t y) {
+                              IS_METRIC = !IS_METRIC;
+                              updateData(true);
+                            },
+                            0);
+TFTCallback toggle24H(40, SCREEN_WIDTH - 40, 0, 80,
+                      [](int16_t x, int16_t y) { IS_12H = !IS_12H; }, 0);
+TFTCallback rebootButtonCallback(15, SCREEN_WIDTH - 15, 270, SCREEN_HEIGHT,
+                                 [](int16_t x, int16_t y) {
+                                   Homie.setHomieBootModeOnNextBoot(
+                                       HomieBootMode::CONFIGURATION);
+                                   Homie.reboot();
+                                 },
+                                 0);
+TFTCallback wizardTouchCallback(
+    0, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
+    std::bind(&TFTWizard::touchCallback, &wizard, std::placeholders::_1,
+              std::placeholders::_2),
+    0);  // put on some random screen above the defaults
+
+void setCurrentScreenCallbacks(bool enabled) {
+  switch (currentScreen) {
+    // going back on screen 0 has a happy side effect of making the
+    // currentScreen 255, however all this causes is you need to press back
+    // twice, and it works fine otherwise
+    case 255:
+    case 0:
+      toggle24H.setEnabled(enabled);
+      toggleTempUnits.setEnabled(enabled);
+      break;
+    case 4:
+      rebootButtonCallback.setEnabled(enabled);
+      break;
+    default:
+      break;
+  }
+}
+
+void switchPage(bool forward) {
+  setCurrentScreenCallbacks(false);
+  if (forward) {
+    currentScreen = (currentScreen + 1) % screenCount;
+  } else {
+    currentScreen = (currentScreen - 1) % screenCount;
+  }
+  setCurrentScreenCallbacks(true);
+  Homie.getLogger() << F("Current Screen: ") << currentScreen << endl;
+}
 
 void initialize() {
   // Setup timezone configurations
@@ -101,10 +168,31 @@ void setup() {
   carousel.disableAllIndicators();
   carousel.setTargetFPS(3);
   wizard.setCallback(wizardCallback);
-  wizard.addStep(drawWizardName, wizardNameCallback);
-  wizard.addStep(drawWizardUTFOffset, wizardUTFOffsetCallback);
-  wizard.addStep(drawWizardST, wizardSTCallback);
-  wizard.addStep(drawWizardDST, wizardDSTCallback);
+  wizard.addStep(
+      [](TFTKeyboard* key) {
+        key->draw(
+            F("Location ID?\nVisit https://openweathermap.org\nLethbridge: "
+              "6053154"));
+      },
+      [](String value) { _owLocId = value; });
+  wizard.addStep(
+      [](TFTKeyboard* key) {
+        key->draw(F("Location Name?\nExample: Lethbridge"));
+      },
+      [](String value) { _owLocName = value; });
+  wizard.addStep(
+      [](TFTKeyboard* key) { key->draw(F("UTF Offset?\nExample: 7")); },
+      [](String value) { _utcOffset = value; });
+  wizard.addStep(
+      [](TFTKeyboard* key) {
+        key->draw(F("Standard Time Abbrev?\n\nExample: MST"));
+      },
+      [](String value) { _tzST = value; });
+  wizard.addStep(
+      [](TFTKeyboard* key) {
+        key->draw(F("Daylight Saving Time Abbrev?\nExample: MDT"));
+      },
+      [](String value) { _tzDST = value; });
 
   // Setup HTTP clients
   currentWeatherClient.setLanguage(OPEN_WEATHER_LANGUAGE);
@@ -114,15 +202,11 @@ void setup() {
   // Setup Homie
   Homie_setFirmware("weather-station", "0.0.1");
   Homie_setBrand("IoT");
-  tzUtcOffset.setDefaultValue(TZ_UTC_OFFSET);
-  tzST.setDefaultValue(TZ_ST);
-  tzDST.setDefaultValue(TZ_DST);
   Homie.onEvent(onHomieEvent);
   Homie.setSetupFunction(initialize);
   Homie.setLoopFunction(temperatureLoop);
   Homie.setup();
 
-  touchController.setTouchCallback(touchCallback);
   boolean isCalibrationAvailable = touchController.loadCalibration();
   if (!isCalibrationAvailable) {
     Homie.getLogger() << F("Calibration not available") << endl;
@@ -130,7 +214,7 @@ void setup() {
   }
 }
 
-void onHomieEvent(const HomieEvent &event) {
+void onHomieEvent(const HomieEvent& event) {
   switch (event.type) {
     case HomieEventType::NORMAL_MODE:
       bootMode = HomieBootMode::NORMAL;
@@ -138,6 +222,7 @@ void onHomieEvent(const HomieEvent &event) {
     case HomieEventType::CONFIGURATION_MODE:
       bootMode = HomieBootMode::CONFIGURATION;
       wizard.start();
+      wizardTouchCallback.enable();
       break;
     case HomieEventType::OTA_STARTED:
       updateCurrentTicker.detach();
@@ -219,14 +304,14 @@ void loop() {
         gfx.commit();
       } else {
         if (millis() > 60000) {
-          drawProgress((millis() / 1000) % 100,
-                       F("Unable to connect to WiFi"));
+          drawProgress((millis() / 1000) % 100, F("Unable to connect to WiFi"));
           gfx.setColor(MINI_WHITE);
           gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
           gfx.setColor(MINI_YELLOW);
           gfx.setTextAlignment(TEXT_ALIGN_CENTER);
-          gfx.drawString(SCREEN_WIDTH/2, 270, F("RESET"));
+          gfx.drawString(SCREEN_WIDTH / 2, 270, F("RESET"));
           gfx.commit();
+          rebootButtonCallback.enable();
         } else if ((millis() / 1000) % 5 == 0)
           // throttle drawing while system is getting started
           drawProgress((millis() / 1000) % 100, F("Initializing..."));
@@ -235,6 +320,8 @@ void loop() {
     case HomieBootMode::CONFIGURATION:
       if (wizard.inProgress()) {
         wizard.draw();
+      } else {
+        drawProgress((millis() / 1000) % 100, F("Getting Started..."));
       }
       break;
     default:
@@ -261,7 +348,7 @@ void drawTime() {
   char time_str[11];
 
   time_t tnow = time(nullptr);
-  struct tm *timeinfo = localtime(&tnow);
+  struct tm* timeinfo = localtime(&tnow);
 
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
   gfx.setFont(ArialRoundedMTBold_14);
@@ -327,8 +414,7 @@ void drawCurrentWeather() {
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setColor(MINI_BLUE);
   gfx.setTextAlignment(TEXT_ALIGN_RIGHT);
-  gfx.drawString(220, 65,
-                 displayCurrent ? OPEN_WEATHER_DISPLAYED_CITY_NAME : "Inside");
+  gfx.drawString(220, 65, displayCurrent ? owLocationName.get() : "Inside");
 
   gfx.setFont(ArialRoundedMTBold_36);
   gfx.setColor(MINI_WHITE);
@@ -352,21 +438,21 @@ void drawCurrentWeather() {
   }
 }
 
-void drawForecast1(MiniGrafx *display, CarouselState *state, int16_t x,
+void drawForecast1(MiniGrafx* display, CarouselState* state, int16_t x,
                    int16_t y) {
   drawForecastDetail(x + 10, y + 165, 0);
   drawForecastDetail(x + 95, y + 165, 1);
   drawForecastDetail(x + 180, y + 165, 2);
 }
 
-void drawForecast2(MiniGrafx *display, CarouselState *state, int16_t x,
+void drawForecast2(MiniGrafx* display, CarouselState* state, int16_t x,
                    int16_t y) {
   drawForecastDetail(x + 10, y + 165, 3);
   drawForecastDetail(x + 95, y + 165, 4);
   drawForecastDetail(x + 180, y + 165, 5);
 }
 
-void drawForecast3(MiniGrafx *display, CarouselState *state, int16_t x,
+void drawForecast3(MiniGrafx* display, CarouselState* state, int16_t x,
                    int16_t y) {
   drawForecastDetail(x + 10, y + 165, 6);
   drawForecastDetail(x + 95, y + 165, 7);
@@ -378,7 +464,7 @@ void drawForecastDetail(uint16_t x, uint16_t y, uint8_t dayIndex) {
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
   time_t time = forecasts[dayIndex].observationTime;
-  struct tm *timeinfo = localtime(&time);
+  struct tm* timeinfo = localtime(&time);
   gfx.drawString(
       x + 25, y - 15,
       WDAY_NAMES[timeinfo->tm_wday] + " " + String(timeinfo->tm_hour) + ":00");
@@ -482,7 +568,7 @@ void drawForecastTable(uint8_t start) {
     gfx.setColor(MINI_WHITE);
     gfx.setTextAlignment(TEXT_ALIGN_CENTER);
     time_t time = forecasts[i].observationTime;
-    struct tm *timeinfo = localtime(&time);
+    struct tm* timeinfo = localtime(&time);
     gfx.drawString(120, y - 15,
                    WDAY_NAMES[timeinfo->tm_wday] + " " +
                        String(timeinfo->tm_hour) + ":00");
@@ -539,6 +625,7 @@ void drawAbout() {
 
   gfx.setFont(ArialRoundedMTBold_14);
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+  drawLabelValue(0, F("LocationID:"), owLocationId.get());
   drawLabelValue(1, F("DeviceID:"), Homie.getConfiguration().deviceId);
   drawLabelValue(3, F("SSID:"), WiFi.SSID());
   drawLabelValue(4, F("IP:"), WiFi.localIP().toString());
@@ -566,7 +653,7 @@ void drawAbout() {
   gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
   gfx.setColor(MINI_YELLOW);
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
-  gfx.drawString(SCREEN_WIDTH/2, 270, F("RESET"));
+  gfx.drawString(SCREEN_WIDTH / 2, 275, F("RESET"));
 }
 
 void drawLabelValue(uint8_t line, String label, String value) {
@@ -598,7 +685,7 @@ void updateData(bool force) {
     drawProgress(50, F("Updating conditions..."));
     currentWeatherClient.setMetric(IS_METRIC);
     bool doCurrentUpdate_ = !currentWeatherClient.updateCurrentById(
-        &currentWeather, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID);
+        &currentWeather, owApiKey.get(), owLocationId.get());
     Homie.getLogger() << F("Current Forecast Successful? ")
                       << (doCurrentUpdate_ ? F("False") : F("True")) << endl;
     doCurrentUpdate = false;
@@ -612,7 +699,7 @@ void updateData(bool force) {
     drawProgress(70, F("Updating forecasts..."));
     forecastClient.setMetric(IS_METRIC);
     bool doForecastUpdate_ = !forecastClient.updateForecastsById(
-        forecasts, owApiKey.get(), OPEN_WEATHER_MAP_LOCATION_ID, MAX_FORECASTS);
+        forecasts, owApiKey.get(), owLocationId.get(), MAX_FORECASTS);
     Homie.getLogger() << F("Forcast Update Successful? ")
                       << (doForecastUpdate_ ? F("False") : F("True")) << endl;
     doForecastUpdate = false;
@@ -633,9 +720,13 @@ void updateData(bool force) {
     doAstronomyUpdate = false;
   }
   initialUpdate = true;
+  nextPage.enable();
+  prevPage.enable();
+  toggle24H.enable();
+  toggleTempUnits.enable();
 }
 
-const char *getTimezone(tm *timeInfo) {
+const char* getTimezone(tm* timeInfo) {
   if (timeInfo->tm_isdst) {
     return tzDST.get();
   } else {
@@ -643,8 +734,8 @@ const char *getTimezone(tm *timeInfo) {
   }
 }
 
-String getTime(time_t *timestamp) {
-  struct tm *timeInfo = gmtime(timestamp);
+String getTime(time_t* timestamp) {
+  struct tm* timeInfo = gmtime(timestamp);
 
   char buf[6];
   sprintf(buf, "%02d:%02d", timeInfo->tm_hour, timeInfo->tm_min);
@@ -662,102 +753,16 @@ void calibrationCallback(int16_t x, int16_t y) {
   gfx.commit();
 }
 
-void touchCallback(int16_t x, int16_t y) {
-  switch (bootMode) {
-    case HomieBootMode::NORMAL:
-      if (!initialUpdate) {
-        if (millis() > 60000) {
-          if (x > 15 && x < SCREEN_WIDTH-15 && y > 270 && y < SCREEN_HEIGHT) {
-            // reset button pushed
-            Homie.setHomieBootModeOnNextBoot(HomieBootMode::CONFIGURATION);
-            Homie.reboot();
-          }
-        }
-        return;
-      };
-      switch (currentScreen) {
-        case 4: //about screen
-          if (x > 15 && x < SCREEN_WIDTH-15 && y > 270 && y < SCREEN_HEIGHT) {
-            // reset button pushed
-            Homie.setHomieBootModeOnNextBoot(HomieBootMode::CONFIGURATION);
-            Homie.reboot();
-            return;
-          }
-      }
-      if (y < 80) {
-        IS_12H = !IS_12H;
-      } else if (y >= 80 && y < 120) {
-        IS_METRIC = !IS_METRIC;
-        updateData(true);
-      } else if (x >= SCREEN_WIDTH / 2) {
-        currentScreen = (currentScreen - 1) % screenCount;
-        Homie.getLogger() << F("Switching to Screen: ") << currentScreen
-                          << endl;
-      } else {
-        currentScreen = (currentScreen + 1) % screenCount;
-        Homie.getLogger() << F("Switching to Screen: ") << currentScreen
-                          << endl;
-      }
-      return;
-    case HomieBootMode::CONFIGURATION:
-      if (wizard.inProgress()) {
-        wizard.touchCallback(x, y);
-      }
-    default:
-      return;
-  }
-}
-
-String _name;
-String _tzDST;
-String _tzST;
-String _utcOffset;
-
 void wizardCallback(String ssid, String password) {
-  String json = "{\"name\":\"" + _name + "\",\"wifi\":{\"ssid\":\"" + ssid +
-                "\",\"password\":\"" + password +
-                "\"},\"settings\":{\"tz_utc_offset\":\"" + _utcOffset +
-                "\",\"tz_st\":\"" + _tzST + "\",\"tz_dst\":\"" + _tzDST + "\"}}";
+  String json = "{\"wifi\":{\"ssid\":\"" + ssid + "\",\"password\":\"" +
+                password + "\"},\"settings\":{\"tz_utc_offset\":\"" +
+                _utcOffset + "\",\"tz_st\":\"" + _tzST + "\",\"tz_dst\":\"" +
+                _tzDST + "\", \"ow_loc_id\":\"" + _owLocId +
+                "\",\"ow_loc_name\":\"" + _owLocName + "\"}}";
   if (Homie.getConfig().patch(json.c_str())) {
     Homie.reboot();
   } else {
     wizard.reset();
     wizard.start();
   }
-}
-
-void drawWizardName(TFTKeyboard *keyboard) {
-  keyboard->draw("Friendly Name for Device?");
-}
-
-void wizardNameCallback(String value) {
-  Homie.getLogger() << F("Got ") << value << endl;
-  _name = value;
-}
-
-void drawWizardUTFOffset(TFTKeyboard *keyboard) {
-  keyboard->draw("UTF Offset?");
-}
-
-void wizardUTFOffsetCallback(String value) {
-  Homie.getLogger() << F("Got ") << value << endl;
-  _utcOffset = value;
-}
-
-void drawWizardST(TFTKeyboard *keyboard) {
-  keyboard->draw("Standard Time Abbreviation?");
-}
-
-void wizardSTCallback(String value) {
-  Homie.getLogger() << F("Got ") << value << endl;
-  _tzST = value;
-}
-
-void drawWizardDST(TFTKeyboard *keyboard) {
-  keyboard->draw("DST Abbreviation?");
-}
-
-void wizardDSTCallback(String value) {
-  Homie.getLogger() << F("Got ") << value << endl;
-  _tzDST = value;
 }
