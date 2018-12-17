@@ -18,6 +18,12 @@ bool doAstronomyUpdate = false;
 // and an MQTT connection is guarenteed
 bool doTemperatureSend = true;
 
+// Message handlers for message display
+bool messageReady = false;
+String message;
+uint8_t displayLength = 5;
+uint32_t displayedAt = 0;
+
 uint8_t moonAge = 0;
 String moonAgeImage = "";
 uint32_t lastTemperatureSent = 0;
@@ -32,6 +38,7 @@ String _tzST;
 String _utcOffset;
 
 HomieNode temperatureNode("temperature", "temperature");
+HomieNode displayNode("display", "message");
 HomieSetting<const char*> owApiKey("ow_api_key", "Open Weather API Key");
 HomieSetting<const char*> owLocationName("ow_loc_name",
                                          "Open Weather Location Name");
@@ -47,11 +54,11 @@ HomieSetting<const char*> tzST("tz_st",
 
 TFTCallback nextPage(
     0, SCREEN_WIDTH / 2, 0, SCREEN_HEIGHT, std::bind(switchPage, true),
-    255);  // put on some high screen number to always be enabled
+    255);
 TFTCallback prevPage(
     SCREEN_WIDTH / 2, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
     std::bind(switchPage, false),
-    255);  // put on some high screen number to always be enabled
+    255);
 TFTCallback toggleTempUnits(0, 160, 80, 120,
                             [](int16_t x, int16_t y) {
                               IS_METRIC = !IS_METRIC;
@@ -71,13 +78,20 @@ TFTCallback wizardTouchCallback(
     0, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
     std::bind(&TFTWizard::touchCallback, &wizard, std::placeholders::_1,
               std::placeholders::_2),
-    0);  // put on some random screen above the defaults
+    0);
+
+bool displayMessageHandler(const HomieRange& range, const String& value) {
+  Homie.getLogger() << F("Message Recieved: ") << value << endl;
+  message = value;
+  messageReady = true;
+  return true;
+}
 
 void setCurrentScreenCallbacks(bool enabled) {
   switch (currentScreen) {
     // going back on screen 0 has a happy side effect of making the
     // currentScreen 255, however all this causes is you need to press back
-    // twice, and it works fine otherwise
+    // twice, and it works fine otherwise4Zx442CKYhwYGQLBvQz3d7HK
     case 255:
     case 0:
       toggle24H.setEnabled(enabled);
@@ -141,8 +155,6 @@ void setup() {
   settimeofday(&tv_, &tz_);
 
   // Setup pins
-  // pinMode(TFT_LED, OUTPUT);
-  // digitalWrite(TFT_LED, HIGH);
   pinMode(TEMP_PIN, INPUT);
   sensors.begin();
 
@@ -202,6 +214,7 @@ void setup() {
   // Setup Homie
   Homie_setFirmware("weather-station", "0.0.1");
   Homie_setBrand("IoT");
+  displayNode.advertise("message").settable(displayMessageHandler);
   Homie.onEvent(onHomieEvent);
   Homie.setSetupFunction(initialize);
   Homie.setLoopFunction(temperatureLoop);
@@ -281,6 +294,19 @@ void loop() {
       // run
       if (initialUpdate) {
         gfx.fillBuffer(MINI_BLACK);
+        // handle message displays
+        if (messageReady || (displayedAt != 0 && millis() - displayedAt < displayLength * 1000)) {
+          gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+          gfx.setColor(MINI_WHITE);
+          gfx.setFont(ArialMT_Plain_24);
+          gfx.drawStringMaxWidth(SCREEN_WIDTH/2, 100, 200, message);
+          gfx.commit();
+          if (messageReady) {
+            displayedAt = millis();
+            messageReady = false;
+          }
+          return;
+        }
         switch (currentScreen) {
           case 1:
             drawCurrentWeatherDetail();
