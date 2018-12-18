@@ -77,6 +77,7 @@ const char *getTimezone(tm *timeInfo);
 void onHomieEvent(const HomieEvent &event);
 void updateData(bool force = false);
 void updateTemperatureSensor();
+void setCurrentScreenCallbacks(bool enabled);
 
 void drawWifiQuality();
 void drawTime();

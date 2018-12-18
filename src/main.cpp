@@ -20,6 +20,7 @@ bool doTemperatureSend = true;
 
 // Message handlers for message display
 bool messageReady = false;
+bool messageAcknowledged = false;
 String message;
 uint8_t displayLength = 5;
 uint32_t displayedAt = 0;
@@ -82,11 +83,25 @@ TFTCallback wizardTouchCallback(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
                                           std::placeholders::_1,
                                           std::placeholders::_2),
                                 0);
+TFTCallback messageAcknowledgeCallback(20, SCREEN_WIDTH - 20, 300,
+                                       SCREEN_HEIGHT - 5,
+                                       [](int16_t x, int16_t y) {
+                                         messageAcknowledged = true;
+                                         message = "";
+                                         setCurrentScreenCallbacks(false);
+                                         currentScreen = 0;
+                                         setCurrentScreenCallbacks(true);
+                                       },
+                                       0);
 
 bool displayMessageHandler(const HomieRange& range, const String& value) {
   Homie.getLogger() << F("Message Recieved: ") << value << endl;
   message = value;
   messageReady = true;
+  messageAcknowledged = false;
+  setCurrentScreenCallbacks(false);
+  currentScreen = 10;
+  setCurrentScreenCallbacks(true);
   return true;
 }
 
@@ -103,6 +118,8 @@ void setCurrentScreenCallbacks(bool enabled) {
     case 4:
       rebootButtonCallback.setEnabled(enabled);
       break;
+    case 10:
+      messageAcknowledgeCallback.setEnabled(enabled);
     default:
       break;
   }
@@ -391,12 +408,20 @@ void loop() {
       if (initialUpdate) {
         gfx.fillBuffer(MINI_BLACK);
         // handle message displays
-        if (messageReady || (displayedAt != 0 &&
-                             millis() - displayedAt < displayLength * 1000)) {
+        if (messageReady || (message != "" && !messageAcknowledged)) {
           gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+          gfx.setColor(MINI_BLUE);
+          gfx.setFont(ArialRoundedMTBold_36);
+          gfx.drawString(SCREEN_WIDTH/2, 20, F("- BROADCAST -"));
           gfx.setColor(MINI_WHITE);
-          gfx.setFont(ArialMT_Plain_24);
-          gfx.drawStringMaxWidth(SCREEN_WIDTH / 2, 20, 200, message);
+          gfx.setFont(ArialRoundedMTBold_14);
+          gfx.drawStringMaxWidth(SCREEN_WIDTH / 2, 60, 200, message);
+          gfx.setColor(MINI_WHITE);
+          gfx.drawRect(20, 290, SCREEN_WIDTH - 40, 25);
+          gfx.setColor(MINI_BLUE);
+          gfx.setFont(ArialRoundedMTBold_14);
+          gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+          gfx.drawString(SCREEN_WIDTH / 2, 293, F("ACKNOWLEDGE"));
           gfx.commit();
           if (messageReady) {
             displayedAt = millis();
