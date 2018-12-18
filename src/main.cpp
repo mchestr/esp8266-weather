@@ -72,37 +72,42 @@ TFTCallback toggleTempUnits(0, 160, 80, 120,
 TFTCallback toggle24H(40, SCREEN_WIDTH - 40, 0, 80,
                       [](int16_t x, int16_t y) { IS_12H = !IS_12H; }, 0);
 TFTCallback rebootButtonCallback(15, SCREEN_WIDTH - 15, 270, SCREEN_HEIGHT,
-                                 [](int16_t x, int16_t y) {
-                                   Homie.setHomieBootModeOnNextBoot(
-                                       HomieBootMode::CONFIGURATION);
-                                   Homie.reboot();
-                                 },
-                                 0);
+                                 rebootButton, 0);
 TFTCallback wizardTouchCallback(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
                                 std::bind(&TFTWizard::touchCallback, &wizard,
                                           std::placeholders::_1,
                                           std::placeholders::_2),
                                 0);
 TFTCallback messageAcknowledgeCallback(20, SCREEN_WIDTH - 20, 300,
-                                       SCREEN_HEIGHT - 5,
-                                       [](int16_t x, int16_t y) {
-                                         messageAcknowledged = true;
-                                         message = "";
-                                         setCurrentScreenCallbacks(false);
-                                         currentScreen = 0;
-                                         setCurrentScreenCallbacks(true);
-                                       },
+                                       SCREEN_HEIGHT - 5, messageAcknowledge,
                                        0);
+
+void rebootButton(int16_t x, int16_t y) {
+  drawProgress(50, F("Rebooting..."));
+  Homie.setHomieBootModeOnNextBoot(HomieBootMode::CONFIGURATION);
+  Homie.reboot();
+}
 
 bool displayMessageHandler(const HomieRange& range, const String& value) {
   Homie.getLogger() << F("Message Recieved: ") << value << endl;
   message = value;
   messageReady = true;
   messageAcknowledged = false;
+  displayNode.setProperty("acknowledged").send("false");
   setCurrentScreenCallbacks(false);
   currentScreen = 10;
   setCurrentScreenCallbacks(true);
   return true;
+}
+
+void messageAcknowledge(int16_t x, int16_t y) {
+  messageAcknowledged = true;
+  message = "";
+  drawProgress(50, F("Acknowledging..."));
+  setCurrentScreenCallbacks(false);
+  currentScreen = 0;
+  setCurrentScreenCallbacks(true);
+  displayNode.setProperty("acknowledged").send("true");
 }
 
 void setCurrentScreenCallbacks(bool enabled) {
@@ -327,6 +332,7 @@ void setup() {
   Homie_setFirmware("weather-station", "0.0.1");
   Homie_setBrand("IoT");
   displayNode.advertise("message").settable(displayMessageHandler);
+  displayNode.advertise("acknowledged");
   Homie.onEvent(onHomieEvent);
   Homie.setSetupFunction(initialize);
   Homie.setLoopFunction(temperatureLoop);
@@ -391,8 +397,8 @@ void loop() {
       break;
   }
 
-  Homie.loop();
   touchController.loop();
+  Homie.loop();
 
   // Handle Normal mode screen drawing
   switch (bootMode) {
@@ -412,9 +418,9 @@ void loop() {
           gfx.setTextAlignment(TEXT_ALIGN_CENTER);
           gfx.setColor(MINI_BLUE);
           gfx.setFont(ArialRoundedMTBold_36);
-          gfx.drawString(SCREEN_WIDTH/2, 20, F("- BROADCAST -"));
+          gfx.drawString(SCREEN_WIDTH / 2, 20, F("- BROADCAST -"));
           gfx.setColor(MINI_WHITE);
-          gfx.setFont(ArialRoundedMTBold_14);
+          gfx.setFont(ArialMT_Plain_16);
           gfx.drawStringMaxWidth(SCREEN_WIDTH / 2, 60, 200, message);
           gfx.setColor(MINI_WHITE);
           gfx.drawRect(20, 290, SCREEN_WIDTH - 40, 25);

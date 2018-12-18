@@ -78,6 +78,8 @@ void onHomieEvent(const HomieEvent &event);
 void updateData(bool force = false);
 void updateTemperatureSensor();
 void setCurrentScreenCallbacks(bool enabled);
+void messageAcknowledge(int16_t x, int16_t y);
+void rebootButton(int16_t x, int16_t y);
 
 void drawWifiQuality();
 void drawTime();
