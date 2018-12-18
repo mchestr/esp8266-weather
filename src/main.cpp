@@ -93,6 +93,7 @@ bool displayMessageHandler(const HomieRange& range, const String& value) {
   message = value;
   messageReady = true;
   messageAcknowledged = false;
+  displayNode.setProperty("message").send(value);
   displayNode.setProperty("acknowledged").send("false");
   setCurrentScreenCallbacks(false);
   currentScreen = 10;
