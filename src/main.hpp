@@ -22,6 +22,7 @@
 #include <Homie.h>
 #include "ArialRounded.h"
 #include "MoonPhases.h"
+#include "Secrets.h"
 #include "Settings.h"
 #include "WeatherIcons.h"
 
@@ -99,3 +100,8 @@ void switchPage(bool forward);
 
 FrameCallback frames[] = {drawForecast1, drawForecast2, drawForecast3};
 int frameCount = 3;
+
+const uint8_t MAX_CONFIG_SETTING_SIZE = 10;
+const uint16_t MAX_JSON_CONFIG_ARDUINOJSON_BUFFER_SIZE =
+    JSON_OBJECT_SIZE(6) + JSON_OBJECT_SIZE(9) + JSON_OBJECT_SIZE(6) +
+    JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(MAX_CONFIG_SETTING_SIZE);

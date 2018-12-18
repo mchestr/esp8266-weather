@@ -31,11 +31,17 @@ uint8_t screenCount = 5;
 uint8_t currentScreen = 0;
 
 // Wizard helpers
-String _owLocId;
-String _owLocName;
-String _tzDST;
-String _tzST;
-String _utcOffset;
+String wizardLocId;
+String wizardLocName;
+String wizardDstTime;
+String wizardStTime;
+String wizardUtcOffset;
+// load wizard defaults
+String defaultWizardLocId;
+String defaultWizardLocName;
+String defaultWizardUtcOffset;
+String defaultwizardStTime;
+String defaultWizardDstTime;
 
 HomieNode temperatureNode("temperature", "temperature");
 HomieNode displayNode("display", "message");
@@ -52,13 +58,10 @@ HomieSetting<const char*> tzDST(
 HomieSetting<const char*> tzST("tz_st",
                                "Timezone abbrev when in Standard Time.");
 
-TFTCallback nextPage(
-    0, SCREEN_WIDTH / 2, 0, SCREEN_HEIGHT, std::bind(switchPage, true),
-    255);
-TFTCallback prevPage(
-    SCREEN_WIDTH / 2, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
-    std::bind(switchPage, false),
-    255);
+TFTCallback nextPage(0, SCREEN_WIDTH / 2, 0, SCREEN_HEIGHT,
+                     std::bind(switchPage, true), 255);
+TFTCallback prevPage(SCREEN_WIDTH / 2, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
+                     std::bind(switchPage, false), 255);
 TFTCallback toggleTempUnits(0, 160, 80, 120,
                             [](int16_t x, int16_t y) {
                               IS_METRIC = !IS_METRIC;
@@ -74,11 +77,11 @@ TFTCallback rebootButtonCallback(15, SCREEN_WIDTH - 15, 270, SCREEN_HEIGHT,
                                    Homie.reboot();
                                  },
                                  0);
-TFTCallback wizardTouchCallback(
-    0, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
-    std::bind(&TFTWizard::touchCallback, &wizard, std::placeholders::_1,
-              std::placeholders::_2),
-    0);
+TFTCallback wizardTouchCallback(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
+                                std::bind(&TFTWizard::touchCallback, &wizard,
+                                          std::placeholders::_1,
+                                          std::placeholders::_2),
+                                0);
 
 bool displayMessageHandler(const HomieRange& range, const String& value) {
   Homie.getLogger() << F("Message Recieved: ") << value << endl;
@@ -138,12 +141,81 @@ void initialize() {
 void temperatureLoop() {
   if (doTemperatureSend) {
     sensors.requestTemperatures();
-    float insideTemp =
-        IS_METRIC ? sensors.getTempCByIndex(0) : sensors.getTempFByIndex(0);
+
+    float insideTemp = IS_METRIC
+                           ? (sensors.getTempCByIndex(0) + TEMPERATURE_OFFSET_C)
+                           : sensors.getTempFByIndex(0);
     Homie.getLogger() << F("Temperature: ") << insideTemp << endl;
     temperatureNode.setProperty("degrees").send(String(insideTemp));
     doTemperatureSend = false;
   }
+}
+
+void loadWizardDefaults() {
+  drawProgress(15, F("Initializing System..."));
+  File f = SPIFFS.open("/wizard/location_id.txt", "r");
+  if (!f) {
+    defaultWizardLocId = DEFAULT_WIZARD_LOCATION_ID;
+  } else {
+    defaultWizardLocId = f.readString();
+  }
+  Homie.getLogger() << F("loaded defaultWizardLocId=") << defaultWizardLocId
+                    << endl;
+  f.close();
+  drawProgress(30, F("Feeding the hamsters..."));
+  f = SPIFFS.open("/wizard/location_name.txt", "r");
+  if (!f) {
+    defaultWizardLocName = DEFAULT_WIZARD_LOCATION_NAME;
+  } else {
+    defaultWizardLocName = f.readString();
+  }
+  Homie.getLogger() << F("loaded defaultWizardLocName=") << defaultWizardLocName
+                    << endl;
+  f.close();
+  drawProgress(45, F("Loading..."));
+  f = SPIFFS.open("/wizard/utc_offset.txt", "r");
+  if (!f) {
+    defaultWizardUtcOffset = DEFAULT_WIZARD_UTC_OFFSET;
+  } else {
+    defaultWizardUtcOffset = f.readString();
+  }
+  Homie.getLogger() << F("loaded defaultWizardUtcOffset=")
+                    << defaultWizardUtcOffset << endl;
+  f.close();
+  drawProgress(60, F("Loading..."));
+  f = SPIFFS.open("/wizard/st_time.txt", "r");
+  if (!f) {
+    defaultwizardStTime = DEFAULT_WIZARD_ST_TIME;
+  } else {
+    defaultwizardStTime = f.readString();
+  }
+  Homie.getLogger() << F("loaded defaultwizardStTime=") << defaultwizardStTime
+                    << endl;
+  f.close();
+  drawProgress(75, F("Still loading..."));
+  f = SPIFFS.open("/wizard/dst_time.txt", "r");
+  if (!f) {
+    defaultWizardDstTime = DEFAULT_WIZARD_DST_TIME;
+  } else {
+    defaultWizardDstTime = f.readString();
+  }
+  Homie.getLogger() << F("loaded defaultWizardDstTime=") << defaultWizardDstTime
+                    << endl;
+  f.close();
+  drawProgress(90, F("Still loading..."));
+  f = SPIFFS.open("/wizard/password.txt", "r");
+  if (f) {
+    wizard.setDefaultWiFiPassword(f.readString());
+  }
+  f.close();
+  drawProgress(90, F("Done."));
+}
+
+void saveWizardValue(String name, String value) {
+  File f = SPIFFS.open("/wizard/" + name, "w+");
+  f.print(value);
+  f.close();
+  Homie.getLogger() << F("Saved ") << name << "=" << value << endl;
 }
 
 void setup() {
@@ -180,31 +252,54 @@ void setup() {
   carousel.disableAllIndicators();
   carousel.setTargetFPS(3);
   wizard.setCallback(wizardCallback);
+  SPIFFS.begin();
+
   wizard.addStep(
       [](TFTKeyboard* key) {
         key->draw(
             F("Location ID?\nVisit https://openweathermap.org\nLethbridge: "
-              "6053154"));
+              "6053154"),
+            false, defaultWizardLocId);
       },
-      [](String value) { _owLocId = value; });
+      [](String value) {
+        wizardLocId = value;
+        saveWizardValue(F("location_id.txt"), value);
+      });
   wizard.addStep(
       [](TFTKeyboard* key) {
-        key->draw(F("Location Name?\nExample: Lethbridge"));
+        key->draw(F("Location Name?\nExample: Lethbridge"), false,
+                  defaultWizardLocName);
       },
-      [](String value) { _owLocName = value; });
-  wizard.addStep(
-      [](TFTKeyboard* key) { key->draw(F("UTF Offset?\nExample: 7")); },
-      [](String value) { _utcOffset = value; });
-  wizard.addStep(
-      [](TFTKeyboard* key) {
-        key->draw(F("Standard Time Abbrev?\n\nExample: MST"));
-      },
-      [](String value) { _tzST = value; });
+      [](String value) {
+        wizardLocName = value;
+        saveWizardValue(F("location_name.txt"), value);
+      });
   wizard.addStep(
       [](TFTKeyboard* key) {
-        key->draw(F("Daylight Saving Time Abbrev?\nExample: MDT"));
+        key->draw(F("UTF Offset?\nExample: 7"), false, defaultWizardUtcOffset);
       },
-      [](String value) { _tzDST = value; });
+      [](String value) {
+        wizardUtcOffset = value;
+        saveWizardValue(F("utc_offset.txt"), value);
+      });
+  wizard.addStep(
+      [](TFTKeyboard* key) {
+        key->draw(F("Standard Time Abbrev?\n\nExample: MST"), false,
+                  defaultwizardStTime);
+      },
+      [](String value) {
+        wizardStTime = value;
+        saveWizardValue(F("st_time.txt"), value);
+      });
+  wizard.addStep(
+      [](TFTKeyboard* key) {
+        key->draw(F("Daylight Saving Time Abbrev?\nExample: MDT"), false,
+                  defaultWizardDstTime);
+      },
+      [](String value) {
+        wizardDstTime = value;
+        saveWizardValue(F("dst_time.txt"), value);
+      });
 
   // Setup HTTP clients
   currentWeatherClient.setLanguage(OPEN_WEATHER_LANGUAGE);
@@ -234,6 +329,7 @@ void onHomieEvent(const HomieEvent& event) {
       break;
     case HomieEventType::CONFIGURATION_MODE:
       bootMode = HomieBootMode::CONFIGURATION;
+      loadWizardDefaults();
       wizard.start();
       wizardTouchCallback.enable();
       break;
@@ -295,11 +391,12 @@ void loop() {
       if (initialUpdate) {
         gfx.fillBuffer(MINI_BLACK);
         // handle message displays
-        if (messageReady || (displayedAt != 0 && millis() - displayedAt < displayLength * 1000)) {
+        if (messageReady || (displayedAt != 0 &&
+                             millis() - displayedAt < displayLength * 1000)) {
           gfx.setTextAlignment(TEXT_ALIGN_CENTER);
           gfx.setColor(MINI_WHITE);
           gfx.setFont(ArialMT_Plain_24);
-          gfx.drawStringMaxWidth(SCREEN_WIDTH/2, 100, 200, message);
+          gfx.drawStringMaxWidth(SCREEN_WIDTH / 2, 20, 200, message);
           gfx.commit();
           if (messageReady) {
             displayedAt = millis();
@@ -330,7 +427,8 @@ void loop() {
         gfx.commit();
       } else {
         if (millis() > 60000) {
-          drawProgress((millis() / 1000) % 100, F("Unable to connect to WiFi"), false);
+          drawProgress((millis() / 1000) % 100, F("Unable to connect to WiFi"),
+                       false);
           gfx.setColor(MINI_WHITE);
           gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
           gfx.setColor(MINI_YELLOW);
@@ -448,8 +546,9 @@ void drawCurrentWeather() {
 
   if (!displayCurrent) {
     sensors.requestTemperatures();
-    float insideTemp =
-        IS_METRIC ? sensors.getTempCByIndex(0) : sensors.getTempFByIndex(0);
+    float insideTemp = IS_METRIC
+                           ? (sensors.getTempCByIndex(0) + TEMPERATURE_OFFSET_C)
+                           : sensors.getTempFByIndex(0);
     gfx.drawString(220, 78, String(insideTemp, 1) + (IS_METRIC ? "°C" : "°F"));
   } else {
     gfx.drawString(220, 78,
@@ -780,15 +879,29 @@ void calibrationCallback(int16_t x, int16_t y) {
 }
 
 void wizardCallback(String ssid, String password) {
-  String json = "{\"wifi\":{\"ssid\":\"" + ssid + "\",\"password\":\"" +
-                password + "\"},\"settings\":{\"tz_utc_offset\":\"" +
-                _utcOffset + "\",\"tz_st\":\"" + _tzST + "\",\"tz_dst\":\"" +
-                _tzDST + "\", \"ow_loc_id\":\"" + _owLocId +
-                "\",\"ow_loc_name\":\"" + _owLocName + "\"}}";
-  if (Homie.getConfig().patch(json.c_str())) {
-    Homie.reboot();
-  } else {
-    wizard.reset();
-    wizard.start();
-  }
+  saveWizardValue(F("password.txt"), password);
+  StaticJsonBuffer<MAX_JSON_CONFIG_ARDUINOJSON_BUFFER_SIZE> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+  root["name"] = NAME;
+  JsonObject& wifi = root.createNestedObject("wifi");
+  wifi["ssid"] = ssid;
+  wifi["password"] = password;
+  JsonObject& mqtt = root.createNestedObject("mqtt");
+  mqtt["host"] = MQTT_HOST;
+  mqtt["port"] = MQTT_PORT;
+  mqtt["auth"] = MQTT_AUTH;
+  mqtt["username"] = MQTT_USERNAME;
+  mqtt["password"] = MQTT_PASSWORD;
+  mqtt["base_topic"] = MQTT_BASE_TOPIC;
+  JsonObject& ota = root.createNestedObject("ota");
+  ota["enabled"] = true;
+  JsonObject& settings = root.createNestedObject("settings");
+  settings["ow_api_key"] = OW_API_KEY;
+  settings["tz_utc_offset"] = wizardUtcOffset;
+  settings["tz_st"] = wizardStTime;
+  settings["tz_dst"] = wizardDstTime;
+  settings["ow_loc_id"] = wizardLocId;
+  settings["ow_loc_name"] = wizardLocName;
+  Homie.getConfig().write(root);
+  Homie.reboot();
 }
