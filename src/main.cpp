@@ -30,6 +30,7 @@ String moonAgeImage = "";
 uint32_t lastTemperatureSent = 0;
 uint8_t screenCount = 5;
 uint8_t currentScreen = 0;
+String tzInfo;
 
 // Wizard helpers
 String wizardLocId;
@@ -102,9 +103,9 @@ bool displayMessageHandler(const HomieRange& range, const String& value) {
 }
 
 void messageAcknowledge(int16_t x, int16_t y) {
+  drawProgress(50, F("Acknowledging..."));
   messageAcknowledged = true;
   message = "";
-  drawProgress(50, F("Acknowledging..."));
   setCurrentScreenCallbacks(false);
   currentScreen = 0;
   setCurrentScreenCallbacks(true);
@@ -143,21 +144,6 @@ void switchPage(bool forward) {
 }
 
 void initialize() {
-  // Setup timezone configurations
-  // https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html
-  String tzInfo;
-  tzInfo.concat(tzST.get());
-  tzInfo.concat(tzUtcOffset.get());
-  tzInfo.concat(tzDST.get());
-  tzInfo.concat(",M3.2.0/2,M11.1.0/2");
-  Homie.getLogger() << F("Setting TZ info '") << tzInfo << F("'") << endl;
-  setenv("TZ", tzInfo.c_str(), 1);
-  tzset();  // save the TZ variable
-  configTime(0, 0, NTP_SERVERS);
-
-  doCurrentUpdate = true;
-  doForecastUpdate = true;
-  doAstronomyUpdate = true;
   temperatureNode.setProperty("unit").send(IS_METRIC ? "c" : "f");
 }
 
@@ -278,46 +264,46 @@ void setup() {
   SPIFFS.begin();
 
   wizard.addStep(
+      [](TFTKeyboard* key) { key->setDefaultValue(defaultWizardLocId); },
       [](TFTKeyboard* key) {
         key->draw(
             F("Location ID?\nVisit https://openweathermap.org\nLethbridge: "
               "6053154"),
-            false, defaultWizardLocId);
+            false);
       },
       [](String value) {
         wizardLocId = value;
         saveWizardValue(F("location_id.txt"), value);
       });
   wizard.addStep(
+      [](TFTKeyboard* key) { key->setDefaultValue(defaultWizardLocName); },
       [](TFTKeyboard* key) {
-        key->draw(F("Location Name?\nExample: Lethbridge"), false,
-                  defaultWizardLocName);
+        key->draw(F("Location Name?\nExample: Lethbridge"), false);
       },
       [](String value) {
         wizardLocName = value;
         saveWizardValue(F("location_name.txt"), value);
       });
   wizard.addStep(
-      [](TFTKeyboard* key) {
-        key->draw(F("UTF Offset?\nExample: 7"), false, defaultWizardUtcOffset);
-      },
+      [](TFTKeyboard* key) { key->setDefaultValue(defaultWizardUtcOffset); },
+      [](TFTKeyboard* key) { key->draw(F("UTF Offset?\nExample: 7"), false); },
       [](String value) {
         wizardUtcOffset = value;
         saveWizardValue(F("utc_offset.txt"), value);
       });
   wizard.addStep(
+      [](TFTKeyboard* key) { key->setDefaultValue(defaultwizardStTime); },
       [](TFTKeyboard* key) {
-        key->draw(F("Standard Time Abbrev?\n\nExample: MST"), false,
-                  defaultwizardStTime);
+        key->draw(F("Standard Time Abbrev?\n\nExample: MST"), false);
       },
       [](String value) {
         wizardStTime = value;
         saveWizardValue(F("st_time.txt"), value);
       });
   wizard.addStep(
+      [](TFTKeyboard* key) { key->setDefaultValue(defaultWizardDstTime); },
       [](TFTKeyboard* key) {
-        key->draw(F("Daylight Saving Time Abbrev?\nExample: MDT"), false,
-                  defaultWizardDstTime);
+        key->draw(F("Daylight Saving Time Abbrev?\nExample: MDT"), false);
       },
       [](String value) {
         wizardDstTime = value;
@@ -356,6 +342,19 @@ void onHomieEvent(const HomieEvent& event) {
       loadWizardDefaults();
       wizard.start();
       wizardTouchCallback.enable();
+      break;
+    case HomieEventType::WIFI_CONNECTED:
+      doCurrentUpdate = true;
+      doForecastUpdate = true;
+      doAstronomyUpdate = true;
+      // Setup timezone configurations
+      // https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html
+      tzInfo = String(tzST.get()) + String(tzUtcOffset.get()) +
+              String(tzDST.get()) + ",M3.2.0/2,M11.1.0/2";
+      Homie.getLogger() << F("Setting TZ info '") << tzInfo << F("'") << endl;
+      setenv("TZ", tzInfo.c_str(), 1);
+      tzset();
+      configTime(0, 0, NTP_SERVERS);
       break;
     case HomieEventType::OTA_STARTED:
       updateCurrentTicker.detach();
@@ -458,19 +457,17 @@ void loop() {
         }
         gfx.commit();
       } else {
-        if (millis() > 60000) {
-          drawProgress((millis() / 1000) % 100, F("Unable to connect to WiFi"),
+        if (WiFi.status() != WL_CONNECTED) {
+          drawProgress((millis() / 1000) % 100, F("Connecting to WiFi..."),
                        false);
-          gfx.setColor(MINI_WHITE);
-          gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
-          gfx.setColor(MINI_YELLOW);
-          gfx.setTextAlignment(TEXT_ALIGN_CENTER);
-          gfx.drawString(SCREEN_WIDTH / 2, 270, F("RESET"));
-          gfx.commit();
-          rebootButtonCallback.enable();
-        } else if ((millis() / 1000) % 5 == 0)
-          // throttle drawing while system is getting started
-          drawProgress((millis() / 1000) % 100, F("Initializing..."));
+        }
+        gfx.setColor(MINI_WHITE);
+        gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
+        gfx.setColor(MINI_YELLOW);
+        gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+        gfx.drawString(SCREEN_WIDTH / 2, 270, F("RESET"));
+        gfx.commit();
+        rebootButtonCallback.enable();
       }
       break;
     case HomieBootMode::CONFIGURATION:
