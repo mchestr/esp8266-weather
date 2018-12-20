@@ -783,6 +783,7 @@ void drawAbout() {
   drawLabelValue(1, F("DeviceID:"), Homie.getConfiguration().deviceId);
   drawLabelValue(3, F("SSID:"), WiFi.SSID());
   drawLabelValue(4, F("IP:"), WiFi.localIP().toString());
+  gfx.setColor(Homie.getMqttClient().connected() ? MINI_WHITE : MINI_YELLOW);
   drawLabelValue(5, F("MQTT:"),
                  String(Homie.getConfiguration().mqtt.server.host));
   drawLabelValue(7, F("Heap Mem:"), String(ESP.getFreeHeap() / 1024) + "kb");
