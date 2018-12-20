@@ -60,9 +60,9 @@ HomieSetting<const char*> tzDST(
 HomieSetting<const char*> tzST("tz_st",
                                "Timezone abbrev when in Standard Time.");
 
-TFTCallback nextPage(0, SCREEN_WIDTH / 2, 0, SCREEN_HEIGHT,
+TFTCallback nextPage(0, 50, 0, SCREEN_HEIGHT,
                      std::bind(switchPage, true), 255);
-TFTCallback prevPage(SCREEN_WIDTH / 2, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
+TFTCallback prevPage(SCREEN_WIDTH - 50, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
                      std::bind(switchPage, false), 255);
 TFTCallback toggleTempUnits(0, 160, 80, 120,
                             [](int16_t x, int16_t y) {
