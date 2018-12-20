@@ -76,9 +76,9 @@ String getTime(time_t *timestamp);
 const char *getTimezone(tm *timeInfo);
 void onHomieEvent(const HomieEvent &event);
 void updateData(bool force = false);
-void updateTemperatureSensor();
 void setCurrentScreenCallbacks(bool enabled);
 void messageAcknowledge(int16_t x, int16_t y);
+void broadcastDismiss(int16_t x, int16_t y);
 void rebootButton(int16_t x, int16_t y);
 
 void drawWifiQuality();
@@ -95,8 +95,9 @@ void drawForecast2(MiniGrafx *display, CarouselState *state, int16_t x,
                    int16_t y);
 void drawForecast3(MiniGrafx *display, CarouselState *state, int16_t x,
                    int16_t y);
-void drawLabelValue(uint8_t line, String label, String value);
+void drawLabelValue(uint8_t line, String label, String value, uint8_t valueColor = MINI_WHITE);
 void drawAbout();
+void drawResetButton();
 
 // Callbacks
 void switchPage(bool forward);

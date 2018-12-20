@@ -2,6 +2,7 @@
 #define OPEN_WEATHER_LANGUAGE "en"
 #define DST_START "M3.2.0/2"
 #define DST_END "M11.1.0/2"
+#define VERSION "0.0.1"
 
 #define DEFAULT_WIZARD_LOCATION_ID "6053154"
 #define DEFAULT_WIZARD_LOCATION_NAME "Lethbridge"

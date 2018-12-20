@@ -20,17 +20,19 @@ bool doTemperatureSend = true;
 
 // Message handlers for message display
 bool messageReady = false;
-bool messageAcknowledged = false;
+bool messageNeedsAcknowledge = false;
 String message;
-uint8_t displayLength = 5;
+String messageTitle;
+String messageDismissButton;
+uint8_t displayLength = 15;
 uint32_t displayedAt = 0;
 
 uint8_t moonAge = 0;
 String moonAgeImage = "";
-uint32_t lastTemperatureSent = 0;
 uint8_t screenCount = 5;
 uint8_t currentScreen = 0;
 String tzInfo;
+uint8_t broadcastJokes = 0;
 
 // Wizard helpers
 String wizardLocId;
@@ -60,8 +62,7 @@ HomieSetting<const char*> tzDST(
 HomieSetting<const char*> tzST("tz_st",
                                "Timezone abbrev when in Standard Time.");
 
-TFTCallback nextPage(0, 50, 0, SCREEN_HEIGHT,
-                     std::bind(switchPage, true), 255);
+TFTCallback nextPage(0, 50, 0, SCREEN_HEIGHT, std::bind(switchPage, true), 255);
 TFTCallback prevPage(SCREEN_WIDTH - 50, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
                      std::bind(switchPage, false), 255);
 TFTCallback toggleTempUnits(0, 160, 80, 120,
@@ -72,7 +73,7 @@ TFTCallback toggleTempUnits(0, 160, 80, 120,
                             0);
 TFTCallback toggle24H(40, SCREEN_WIDTH - 40, 0, 80,
                       [](int16_t x, int16_t y) { IS_12H = !IS_12H; }, 0);
-TFTCallback rebootButtonCallback(15, SCREEN_WIDTH - 15, 270, SCREEN_HEIGHT,
+TFTCallback rebootButtonCallback(15, SCREEN_WIDTH - 15, 290, SCREEN_HEIGHT,
                                  rebootButton, 0);
 TFTCallback wizardTouchCallback(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
                                 std::bind(&TFTWizard::touchCallback, &wizard,
@@ -82,6 +83,12 @@ TFTCallback wizardTouchCallback(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT,
 TFTCallback messageAcknowledgeCallback(20, SCREEN_WIDTH - 20, 300,
                                        SCREEN_HEIGHT - 5, messageAcknowledge,
                                        0);
+TFTCallback broadcastDismissCallback(20, SCREEN_WIDTH - 20, 300,
+                                     SCREEN_HEIGHT - 5, broadcastDismiss, 0);
+
+String formatDismiss(uint8_t timeLeftSeconds) {
+  return "DISMISS (" + String(timeLeftSeconds) + "s)";
+}
 
 void rebootButton(int16_t x, int16_t y) {
   drawProgress(50, F("Rebooting..."));
@@ -92,8 +99,10 @@ void rebootButton(int16_t x, int16_t y) {
 bool displayMessageHandler(const HomieRange& range, const String& value) {
   Homie.getLogger() << F("Message Recieved: ") << value << endl;
   message = value;
+  messageTitle = "MESSAGE";
+  messageDismissButton = "ACKNOWLEDGE";
   messageReady = true;
-  messageAcknowledged = false;
+  messageNeedsAcknowledge = true;
   displayNode.setProperty("message").send(value);
   displayNode.setProperty("acknowledged").send("false");
   setCurrentScreenCallbacks(false);
@@ -104,19 +113,48 @@ bool displayMessageHandler(const HomieRange& range, const String& value) {
 
 void messageAcknowledge(int16_t x, int16_t y) {
   drawProgress(50, F("Acknowledging..."));
-  messageAcknowledged = true;
+  broadcastDismiss(x, y);
+  displayNode.setProperty("acknowledged").send("true");
+}
+
+void broadcastDismiss(int16_t x, int16_t y) {
   message = "";
   setCurrentScreenCallbacks(false);
   currentScreen = 0;
   setCurrentScreenCallbacks(true);
-  displayNode.setProperty("acknowledged").send("true");
+}
+
+bool broadcastHandler(const String& level, const String& value) {
+  uint16_t lastDisplaySec = (millis() - displayedAt) / 1000;
+  if (displayedAt == 0 || lastDisplaySec > 60) {
+    if (level.equals("dadjoke") && broadcastJokes == 0) {
+      message = value;
+    } else if (level.equals("chuckjoke") && broadcastJokes == 1) {
+      message = value;
+    } else if (level.equals("catfact") && broadcastJokes == 2) {
+      message = value;
+    } else {
+      return false;
+    }
+  } else {
+    return false;
+  }
+  messageTitle = "BROADCAST";
+  messageDismissButton = formatDismiss(displayLength);
+  messageReady = true;
+  messageNeedsAcknowledge = false;
+  setCurrentScreenCallbacks(false);
+  currentScreen = 11;
+  setCurrentScreenCallbacks(true);
+  broadcastJokes = (broadcastJokes + 1) % 3;
+  return true;
 }
 
 void setCurrentScreenCallbacks(bool enabled) {
   switch (currentScreen) {
     // going back on screen 0 has a happy side effect of making the
     // currentScreen 255, however all this causes is you need to press back
-    // twice, and it works fine otherwise4Zx442CKYhwYGQLBvQz3d7HK
+    // twice, and it works fine otherwise
     case 255:
     case 0:
       toggle24H.setEnabled(enabled);
@@ -127,6 +165,8 @@ void setCurrentScreenCallbacks(bool enabled) {
       break;
     case 10:
       messageAcknowledgeCallback.setEnabled(enabled);
+    case 11:
+      broadcastDismissCallback.setEnabled(enabled);
     default:
       break;
   }
@@ -316,13 +356,14 @@ void setup() {
   forecastClient.setAllowedHours(allowedHours, sizeof(allowedHours));
 
   // Setup Homie
-  Homie_setFirmware("weather-station", "0.0.1");
+  Homie_setFirmware("weather-station", VERSION);
   Homie_setBrand("IoT");
   displayNode.advertise("message").settable(displayMessageHandler);
   displayNode.advertise("acknowledged");
   Homie.onEvent(onHomieEvent);
   Homie.setSetupFunction(initialize);
   Homie.setLoopFunction(temperatureLoop);
+  Homie.setBroadcastHandler(broadcastHandler);
   Homie.setup();
 
   boolean isCalibrationAvailable = touchController.loadCalibration();
@@ -350,7 +391,7 @@ void onHomieEvent(const HomieEvent& event) {
       // Setup timezone configurations
       // https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html
       tzInfo = String(tzST.get()) + String(tzUtcOffset.get()) +
-              String(tzDST.get()) + ",M3.2.0/2,M11.1.0/2";
+               String(tzDST.get()) + ",M3.2.0/2,M11.1.0/2";
       Homie.getLogger() << F("Setting TZ info '") << tzInfo << F("'") << endl;
       setenv("TZ", tzInfo.c_str(), 1);
       tzset();
@@ -414,24 +455,32 @@ void loop() {
       if (initialUpdate) {
         gfx.fillBuffer(MINI_BLACK);
         // handle message displays
-        if (messageReady || (message != "" && !messageAcknowledged)) {
+        if (!message.equals("")) {
           gfx.setTextAlignment(TEXT_ALIGN_CENTER);
           gfx.setColor(MINI_BLUE);
           gfx.setFont(ArialRoundedMTBold_36);
-          gfx.drawString(SCREEN_WIDTH / 2, 20, F("- BROADCAST -"));
+          gfx.drawString(SCREEN_WIDTH / 2, 5, messageTitle);
           gfx.setColor(MINI_WHITE);
           gfx.setFont(ArialMT_Plain_16);
-          gfx.drawStringMaxWidth(SCREEN_WIDTH / 2, 60, 200, message);
+          gfx.drawStringMaxWidth(SCREEN_WIDTH / 2, 50, 200, message);
           gfx.setColor(MINI_WHITE);
           gfx.drawRect(20, 290, SCREEN_WIDTH - 40, 25);
           gfx.setColor(MINI_BLUE);
           gfx.setFont(ArialRoundedMTBold_14);
           gfx.setTextAlignment(TEXT_ALIGN_CENTER);
-          gfx.drawString(SCREEN_WIDTH / 2, 293, F("ACKNOWLEDGE"));
+          gfx.drawString(SCREEN_WIDTH / 2, 293, messageDismissButton);
           gfx.commit();
           if (messageReady) {
             displayedAt = millis();
             messageReady = false;
+          }
+          if (!messageNeedsAcknowledge) {
+            if (millis() - displayedAt > displayLength * 1000) {
+              message = "";
+            } else {
+              messageDismissButton = formatDismiss(
+                  displayLength - (millis() - displayedAt) / 1000);
+            }
           }
           return;
         }
@@ -461,12 +510,7 @@ void loop() {
           drawProgress((millis() / 1000) % 100, F("Connecting to WiFi..."),
                        false);
         }
-        gfx.setColor(MINI_WHITE);
-        gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
-        gfx.setColor(MINI_YELLOW);
-        gfx.setTextAlignment(TEXT_ALIGN_CENTER);
-        gfx.drawString(SCREEN_WIDTH / 2, 270, F("RESET"));
-        gfx.commit();
+        drawResetButton();
         rebootButtonCallback.enable();
       }
       break;
@@ -481,6 +525,16 @@ void loop() {
       break;
   }
   yield();
+}
+
+void drawResetButton() {
+  gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+  gfx.setColor(MINI_WHITE);
+  gfx.drawRect(15, 290, SCREEN_WIDTH - 30, 25);
+  gfx.setColor(MINI_YELLOW);
+  gfx.setTextAlignment(TEXT_ALIGN_CENTER);
+  gfx.drawString(SCREEN_WIDTH / 2, 295, F("RESET"));
+  gfx.commit();
 }
 
 void drawWifiQuality() {
@@ -781,17 +835,18 @@ void drawAbout() {
   gfx.setTextAlignment(TEXT_ALIGN_CENTER);
   drawLabelValue(0, F("LocationID:"), owLocationId.get());
   drawLabelValue(1, F("DeviceID:"), Homie.getConfiguration().deviceId);
-  drawLabelValue(3, F("SSID:"), WiFi.SSID());
-  drawLabelValue(4, F("IP:"), WiFi.localIP().toString());
-  gfx.setColor(Homie.getMqttClient().connected() ? MINI_WHITE : MINI_YELLOW);
-  drawLabelValue(5, F("MQTT:"),
-                 String(Homie.getConfiguration().mqtt.server.host));
-  drawLabelValue(7, F("Heap Mem:"), String(ESP.getFreeHeap() / 1024) + "kb");
-  drawLabelValue(8, F("Flash Mem:"),
+  drawLabelValue(2, F("Version:"), VERSION);
+  drawLabelValue(4, F("SSID:"), WiFi.SSID());
+  drawLabelValue(5, F("IP:"), WiFi.localIP().toString());
+  drawLabelValue(6, F("MQTT:"),
+                 String(Homie.getConfiguration().mqtt.server.host),
+                 Homie.getMqttClient().connected() ? MINI_WHITE : MINI_YELLOW);
+  drawLabelValue(8, F("Heap Mem:"), String(ESP.getFreeHeap() / 1024) + "kb");
+  drawLabelValue(9, F("Flash Mem:"),
                  String(ESP.getFlashChipRealSize() / 1024 / 1024) + "MB");
-  drawLabelValue(9, F("WiFi Strength:"), String(WiFi.RSSI()) + "dB");
-  drawLabelValue(10, F("Chip ID:"), String(ESP.getChipId()));
-  drawLabelValue(12, F("CPU Freq.: "), String(ESP.getCpuFreqMHz()) + "MHz");
+  drawLabelValue(10, F("WiFi Strength:"), String(WiFi.RSSI()) + "dB");
+  drawLabelValue(12, F("Chip ID:"), String(ESP.getChipId()));
+  drawLabelValue(13, F("CPU Freq.: "), String(ESP.getCpuFreqMHz()) + "MHz");
   char time_str[15];
   const uint32_t millis_in_day = 1000 * 60 * 60 * 24;
   const uint32_t millis_in_hour = 1000 * 60 * 60;
@@ -802,22 +857,18 @@ void drawAbout() {
       (millis() - (days * millis_in_day) - (hours * millis_in_hour)) /
       millis_in_minute;
   sprintf(time_str, "%2dd%2dh%2dm", days, hours, minutes);
-  drawLabelValue(13, F("Uptime: "), time_str);
-  gfx.setTextAlignment(TEXT_ALIGN_LEFT);
-  gfx.setColor(MINI_WHITE);
-  gfx.drawRect(15, 270, SCREEN_WIDTH - 30, 30);
-  gfx.setColor(MINI_YELLOW);
-  gfx.setTextAlignment(TEXT_ALIGN_CENTER);
-  gfx.drawString(SCREEN_WIDTH / 2, 275, F("RESET"));
+  drawLabelValue(14, F("Uptime: "), time_str);
+  drawResetButton();
 }
 
-void drawLabelValue(uint8_t line, String label, String value) {
+void drawLabelValue(uint8_t line, String label, String value,
+                    uint8_t valueColor) {
   const uint8_t labelX = 15;
   const uint8_t valueX = 130;
   gfx.setTextAlignment(TEXT_ALIGN_LEFT);
   gfx.setColor(MINI_YELLOW);
   gfx.drawString(labelX, 30 + line * 15, label);
-  gfx.setColor(MINI_WHITE);
+  gfx.setColor(valueColor);
   gfx.drawString(valueX, 30 + line * 15, value);
 }
 
